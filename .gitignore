@@ -1,0 +1,6 @@
+.direnv
+.envrc
+./bulid
+compile_flags.txt
+wasm
+shell.nix
