@@ -1,4 +1,5 @@
 #include "defines.h"
+#include "log.h"
 #include "memory.h"
 #include <SDL2/SDL.h>
 
@@ -27,13 +28,22 @@ void init(Game *game) {
   perm_alloc(&game->memory, u64[2]);
   perm_alloc(&game->memory, u32[4]);
   frame_alloc(&game->memory, u64[1]);
-  frame_alloc(&game->memory, struct { bool b; f32 f;});
+  frame_alloc(
+      &game->memory, struct {
+        bool b;
+        f32 f;
+      });
   frame_alloc(&game->memory, u8[3]);
   frame_alloc(&game->memory, u64);
   printf("perm_mem end %lu\n", game->memory.perm_memory.end);
   printf("frame_mem end %lu\n", game->memory.frame_memory.end);
   frame_reset(&game->memory);
   printf("frame_mem end %lu\n", game->memory.frame_memory.end);
+
+  INFO("test %d\n", 69);
+  WARN("test %d\n", 69);
+  ERROR("test %d\n", 69);
+  DEBUG("test %d\n", 69);
 
   SDL_Init(SDL_INIT_VIDEO);
 
