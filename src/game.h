@@ -7,6 +7,35 @@
 #include <time.h>
 
 typedef struct {
+  f32 x;
+  f32 y;
+  f32 width;
+  f32 hight;
+} Rect;
+
+void draw_rect(SDL_Surface *surface, Rect *rect, u32 color) {
+  u32 rect_min_x = rect->x < rect->width / 2 ? 0 : rect->x - rect->width / 2;
+  u32 rect_max_x = surface->w < rect->x + rect->width / 2
+                       ? surface->w
+                       : rect->x + rect->width / 2;
+
+  u32 rect_min_y = rect->y < rect->hight / 2 ? 0 : rect->y - rect->hight / 2;
+  u32 rect_max_y = surface->h < rect->y + rect->hight / 2
+                       ? surface->h
+                       : rect->y + rect->hight / 2;
+
+  u8 *pixels_start =
+      surface->pixels + rect_min_x * 4 + rect_min_y * surface->pitch;
+
+  for (int y = 0; y < rect_max_y - rect_min_y; y++) {
+    u8 *row = pixels_start + y * surface->pitch;
+    for (int x = 0; x < rect_max_x - rect_min_x; x++) {
+      *((u32 *)row + x) = color;
+    }
+  }
+}
+
+typedef struct {
   Memory memory;
 
   SDL_Window *window;
@@ -18,11 +47,10 @@ typedef struct {
   f64 dt;
 
   f64 r;
-  i32 rect_x;
-  i32 rect_y;
 
-  i32 rect_vel_x;
-  i32 rect_vel_y;
+  Rect rect;
+  f32 rect_vel_x;
+  f32 rect_vel_y;
 } Game;
 
 void init(Game *game) {
@@ -68,10 +96,16 @@ void init(Game *game) {
   game->dt = FRAME_TIME_S;
 
   game->r = 0.0;
-  game->rect_x = 0;
-  game->rect_y = 0;
-  game->rect_vel_x = 1;
-  game->rect_vel_y = 2;
+
+  Rect rect = {
+      .x = 0.0,
+      .y = 0.0,
+      .width = 100.0,
+      .hight = 150.0,
+  };
+  game->rect = rect;
+  game->rect_vel_x = 1.2;
+  game->rect_vel_y = 2.1;
 }
 
 void destroy(Game *game) {
@@ -102,26 +136,6 @@ void cap_fps(Game *game) {
 }
 #endif
 
-void draw_rect(Game *game, u32 x, u32 y, u32 width, u32 hight, u32 color) {
-  u32 rect_min_x = x < width / 2 ? 0 : x - width / 2;
-  u32 rect_max_x =
-      game->surface->w < x + width / 2 ? game->surface->w : x + width / 2;
-
-  u32 rect_min_y = y < hight / 2 ? 0 : y - hight / 2;
-  u32 rect_max_y =
-      game->surface->h < y + hight / 2 ? game->surface->h : y + hight / 2;
-
-  u8 *pixels_start = game->surface->pixels + rect_min_x * 4 +
-                     rect_min_y * game->surface->pitch;
-
-  for (int y = 0; y < rect_max_y - rect_min_y; y++) {
-    u8 *row = pixels_start + y * game->surface->pitch;
-    for (int x = 0; x < rect_max_x - rect_min_x; x++) {
-      *((u32 *)row + x) = color;
-    }
-  }
-}
-
 void run(Game *game) {
   SDL_Event sdl_event;
   while (SDL_PollEvent(&sdl_event) != 0) {
@@ -140,28 +154,21 @@ void run(Game *game) {
     game->r = 0;
   }
 
-  game->rect_x += game->rect_vel_x;
-  game->rect_y += game->rect_vel_y;
+  game->rect.x += game->rect_vel_x;
+  game->rect.y += game->rect_vel_y;
 
-  if (game->rect_x < 0 || game->surface->w < game->rect_x) {
+  if (game->rect.x < 0 || game->surface->w < game->rect.x) {
     game->rect_vel_x *= -1;
   }
-  if (game->rect_y < 0 || game->surface->h < game->rect_y) {
+  if (game->rect.y < 0 || game->surface->h < game->rect.y) {
     game->rect_vel_y *= -1;
-  }
-
-  if (game->rect_x < 0) {
-    game->rect_x = 0;
-  }
-  if (game->rect_y < 0) {
-    game->rect_y = 0;
   }
 
   SDL_FillRect(
       game->surface, 0,
       SDL_MapRGB(game->surface->format, (u8)((f64)255.0 * game->r), 0, 0));
 
-  draw_rect(game, game->rect_x, game->rect_y, 400, 200, 0xFFFFFFFF);
+  draw_rect(game->surface, &game->rect, 0xFFFFFFFF);
 
   SDL_UpdateWindowSurface(game->window);
 }
