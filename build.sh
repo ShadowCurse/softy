@@ -2,4 +2,4 @@
 
 mkdir -p build
 
-clang -lSDL2 src/main.c -o build/softy
+clang -lm -lSDL2 src/main.c src/stb_image.c -o build/softy

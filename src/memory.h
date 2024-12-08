@@ -42,10 +42,13 @@ bool init_memory(Memory *memory) {
 }
 
 #define perm_alloc(memory, type)                                               \
-  __bump_alloc(memory.perm_memory, sizeof(type), alignof(type))
+  __bump_alloc(&memory->perm_memory, sizeof(type), alignof(type))
+
+#define perm_alloc_array(memory, type, num)                                    \
+  __bump_alloc(&memory->perm_memory, sizeof(type) * num, alignof(type))
 
 #define frame_alloc(memory, type)                                              \
-  __bump_alloc(memory.frame_memory, sizeof(type), alignof(type))
+  __bump_alloc(&memory->frame_memory, sizeof(type), alignof(type))
 
 #define frame_reset(memory) *memory.frame_memory.end = 0;
 

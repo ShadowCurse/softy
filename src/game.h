@@ -3,8 +3,85 @@
 #include "memory.h"
 #include <SDL2/SDL.h>
 
+#include "stb_image.h"
+
 #include <stdio.h>
 #include <time.h>
+
+typedef struct {
+  u32 width;
+  u32 hight;
+  u32 channels;
+  u8 *data;
+} BitMap;
+
+BitMap load_bitmap(Memory *memory, const char *filename) {
+  i32 x;
+  i32 y;
+  i32 n;
+  u8 *data = stbi_load(filename, &x, &y, &n, 0);
+  ASSERT(data, "Failed to load bitmap from %s", filename);
+
+  BitMap bm = {
+      .width = (u32)x,
+      .hight = (u32)y,
+      .channels = (u32)n,
+      .data = perm_alloc_array(memory, u8, x * y * n),
+  };
+  memcpy(bm.data, data, x * y * n);
+
+  stbi_image_free(data);
+
+  return bm;
+}
+
+void draw_bitmap(SDL_Surface *surface, BitMap *bitmap, f32 x, f32 y) {
+  u32 bitmap_min_x = 0;
+  u32 bitmap_max_x = bitmap->width;
+  u32 bitmap_min_y = 0;
+  u32 bitmap_max_y = bitmap->hight;
+
+  u32 surface_min_x = 0;
+  u32 surface_max_x = surface->w;
+  u32 surface_min_y = 0;
+  u32 surface_max_y = surface->h;
+
+  if (x < (f32)bitmap->width / 2.0) {
+    bitmap_min_x += (f32)bitmap->width / 2.0 - x;
+  } else {
+    surface_min_x = x - (f32)bitmap->width / 2.0;
+  }
+
+  if (surface->w < x + (f32)bitmap->width / 2.0) {
+    bitmap_max_x -= x + (f32)bitmap->width / 2.0 - (f32)surface->w;
+  } else {
+    surface_max_x = x + (f32)bitmap->width / 2.0;
+  }
+
+  if (y < (f32)bitmap->hight / 2.0) {
+    bitmap_min_y += (f32)bitmap->hight / 2.0 - y;
+  } else {
+    surface_min_y = y - (f32)bitmap->hight / 2.0;
+  }
+
+  if (surface->h < y + (f32)bitmap->hight / 2.0) {
+    bitmap_max_y -= y + (f32)bitmap->hight / 2.0 - (f32)surface->h;
+  } else {
+    surface_max_y = y + (f32)bitmap->hight / 2.0;
+  }
+
+  u8 *surface_start =
+      surface->pixels + surface_min_x * 4 + surface_min_y * surface->pitch;
+
+  u8 *bitmap_start = bitmap->data + bitmap_min_x * bitmap->channels +
+                     bitmap_min_y * bitmap->width * bitmap->channels;
+
+  for (int y = 0; y < bitmap_max_y - bitmap_min_y; y++) {
+    u8 *surface_row = surface_start + y * surface->pitch;
+    u8 *bitmap_row = bitmap_start + y * bitmap->width * bitmap->channels;
+    memcpy(surface_row, bitmap_row, (bitmap_max_x - bitmap_min_x) * 4);
+  }
+}
 
 typedef struct {
   f32 x;
@@ -51,6 +128,8 @@ typedef struct {
   Rect rect;
   f32 rect_vel_x;
   f32 rect_vel_y;
+
+  BitMap bm;
 } Game;
 
 void init(Game *game) {
@@ -58,16 +137,15 @@ void init(Game *game) {
     exit(1);
   }
 
-  perm_alloc(&game->memory, u64[2]);
-  perm_alloc(&game->memory, u32[4]);
-  frame_alloc(&game->memory, u64[1]);
-  frame_alloc(
-      &game->memory, struct {
-        bool b;
-        f32 f;
-      });
-  frame_alloc(&game->memory, u8[3]);
-  frame_alloc(&game->memory, u64);
+  perm_alloc((&game->memory), u64[2]);
+  perm_alloc((&game->memory), u32[4]);
+  frame_alloc((&game->memory), u64[1]);
+  frame_alloc((&game->memory), struct {
+    bool b;
+    f32 f;
+  });
+  frame_alloc((&game->memory), u8[3]);
+  frame_alloc((&game->memory), u64);
   printf("perm_mem end %lu\n", game->memory.perm_memory.end);
   printf("frame_mem end %lu\n", game->memory.frame_memory.end);
   frame_reset(&game->memory);
@@ -106,6 +184,8 @@ void init(Game *game) {
   game->rect = rect;
   game->rect_vel_x = 1.2;
   game->rect_vel_y = 2.1;
+
+  game->bm = load_bitmap(&game->memory, "assets/a.png");
 }
 
 void destroy(Game *game) {
@@ -169,6 +249,7 @@ void run(Game *game) {
       SDL_MapRGB(game->surface->format, (u8)((f64)255.0 * game->r), 0, 0));
 
   draw_rect(game->surface, &game->rect, 0xFFFFFFFF);
+  draw_bitmap(game->surface, &game->bm, game->rect.x, game->rect.y);
 
   SDL_UpdateWindowSurface(game->window);
 }
