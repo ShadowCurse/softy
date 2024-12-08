@@ -40,10 +40,10 @@ void init(Game *game) {
   frame_reset(&game->memory);
   printf("frame_mem end %lu\n", game->memory.frame_memory.end);
 
-  INFO("test %d\n", 69);
-  WARN("test %d\n", 69);
-  ERROR("test %d\n", 69);
-  DEBUG("test %d\n", 69);
+  INFO("test %d", 69);
+  WARN("test %d", 69);
+  ERROR("test %d", 69);
+  DEBUG("test %d", 69);
 
   SDL_Init(SDL_INIT_VIDEO);
 

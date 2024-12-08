@@ -30,7 +30,7 @@ void _LOG(const char *level, const char *color, const char *file, u32 line,
   va_start(args, format);
 
   char buff[1024];
-  int len = snprintf(buff, sizeof(buff), "%s[%s:%s:%d:%s] %s%s", color, level,
+  int len = snprintf(buff, sizeof(buff), "%s[%s:%s:%d:%s] %s%s\n", color, level,
                      file, line, function, format, DEFAULT_COLOR);
   if (len < 0) {
     printf("LOG LINE IS TOO LONG at %s:%d:%s", file, line, function);
