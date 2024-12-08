@@ -4,9 +4,119 @@
 #include <SDL2/SDL.h>
 
 #include "stb_image.h"
+#include "stb_truetype.h"
 
-#include <stdio.h>
+#include <fcntl.h>
+#include <sys/stat.h>
 #include <time.h>
+
+typedef struct {
+  stbtt_bakedchar *char_info;
+  u8 *bitmap;
+  u32 bitmap_width;
+  u32 bitmap_hight;
+} Font;
+
+Font load_font(Memory *memory, const char *font_path, f32 font_size,
+               u32 bitmap_width, u32 bitmap_hight) {
+  i32 fd = open(font_path, O_RDONLY);
+  ASSERT((0 < fd), "Failed to open font file 2: %s", font_path);
+
+  struct stat sb;
+  ASSERT((fstat(fd, &sb) != -1), "Failed to get a font file %s size",
+         font_path);
+
+  u8 *file_mem = mmap(NULL, sb.st_size, PROT_READ, MAP_PRIVATE, fd, 0);
+  ASSERT(file_mem, "Failed to mmap font file: %s", font_path);
+
+  stbtt_fontinfo stb_font;
+  stbtt_InitFont(&stb_font, file_mem, stbtt_GetFontOffsetForIndex(file_mem, 0));
+
+  Font font = {
+      .char_info =
+          perm_alloc_array(memory, stbtt_bakedchar, stb_font.numGlyphs),
+      .bitmap = perm_alloc_array(memory, u8, bitmap_width * bitmap_hight),
+      .bitmap_width = bitmap_width,
+      .bitmap_hight = bitmap_hight,
+  };
+
+  stbtt_BakeFontBitmap(file_mem, 0, font_size, font.bitmap, bitmap_width,
+                       bitmap_hight, 0, stb_font.numGlyphs, font.char_info);
+
+  munmap(file_mem, sb.st_size);
+
+  INFO("Loaded font %s with %d glyphs", font_path, stb_font.numGlyphs);
+
+  return font;
+}
+
+void draw_character(SDL_Surface *surface, Font *font, char c, u32 color, f32 x,
+                    f32 y) {
+  u32 char_width = font->char_info[c].x1 - font->char_info[c].x0;
+  u32 char_hight = font->char_info[c].y1 - font->char_info[c].y0;
+  u32 bitmap_min_x = font->char_info[c].x0;
+  u32 bitmap_max_x = font->char_info[c].x1;
+  u32 bitmap_min_y = font->char_info[c].y0;
+  u32 bitmap_max_y = font->char_info[c].y1;
+
+  u32 surface_min_x = 0;
+  u32 surface_max_x = surface->w;
+  u32 surface_min_y = 0;
+  u32 surface_max_y = surface->h;
+
+  if (x < (f32)char_width / 2.0) {
+    bitmap_min_x += (f32)char_width / 2.0 - x;
+  } else {
+    surface_min_x = x - (f32)char_width / 2.0;
+  }
+
+  if (surface->w < x + (f32)char_width / 2.0) {
+    bitmap_max_x -= x + (f32)char_width / 2.0 - (f32)surface->w;
+  } else {
+    surface_max_x = x + (f32)char_width / 2.0;
+  }
+
+  if (y < (f32)char_hight / 2.0) {
+    bitmap_min_y += (f32)char_hight / 2.0 - y;
+  } else {
+    surface_min_y = y - (f32)char_hight / 2.0;
+  }
+
+  if (surface->h < y + (f32)char_hight / 2.0) {
+    bitmap_max_y -= y + (f32)char_hight / 2.0 - (f32)surface->h;
+  } else {
+    surface_max_y = y + (f32)char_hight / 2.0;
+  }
+
+  u8 *surface_start =
+      surface->pixels + surface_min_x * 4 + surface_min_y * surface->pitch;
+
+  u8 *bitmap_start =
+      font->bitmap + bitmap_min_x + bitmap_min_y * font->bitmap_width;
+
+  for (int y = 0; y < bitmap_max_y - bitmap_min_y; y++) {
+    u8 *surface_row = surface_start + y * surface->pitch;
+    u8 *bitmap_row = bitmap_start + y * font->bitmap_width;
+    for (u32 x = 0; x < bitmap_max_x - bitmap_min_x; x++) {
+      f32 s = ((f32)(*(bitmap_row + x)) / 255.0);
+      u32 a = (u32)(s * (f32)((color & 0xFF000000) >> 24));
+      u32 r = (u32)(s * (f32)((color & 0x00FF0000) >> 16));
+      u32 g = (u32)(s * (f32)((color & 0x0000FF00) >> 8));
+      u32 b = (u32)(s * (f32)((color & 0x000000FF) >> 0));
+
+      *((u32 *)surface_row + x) = a << 24 | r << 16 | g << 8 | b << 0;
+    }
+  }
+}
+
+void draw_text(SDL_Surface *surface, Font *font, const char *text, u32 color,
+               f32 x, f32 y) {
+  while (*text) {
+    draw_character(surface, font, *text, color, x, y);
+    x += (f32)(font->char_info[*text].xadvance);
+    text += 1;
+  }
+}
 
 typedef struct {
   u32 width;
@@ -130,6 +240,7 @@ typedef struct {
   f32 rect_vel_y;
 
   BitMap bm;
+  Font font;
 } Game;
 
 void init(Game *game) {
@@ -186,6 +297,7 @@ void init(Game *game) {
   game->rect_vel_y = 2.1;
 
   game->bm = load_bitmap(&game->memory, "assets/a.png");
+  game->font = load_font(&game->memory, "assets/font.ttf", 32.0, 512, 512);
 }
 
 void destroy(Game *game) {
@@ -250,6 +362,16 @@ void run(Game *game) {
 
   draw_rect(game->surface, &game->rect, 0xFFFFFFFF);
   draw_bitmap(game->surface, &game->bm, game->rect.x, game->rect.y);
+  draw_character(game->surface, &game->font, 'X',
+                 SDL_MapRGB(game->surface->format, 0,
+                            (u8)((f64)255.0 * game->r),
+                            (u8)((f64)255.0 * game->r)),
+                 20.0, 20.0);
+
+  draw_text(game->surface, &game->font, "Test text",
+            SDL_MapRGB(game->surface->format, 0, (u8)((f64)255.0 * game->r),
+                       (u8)((f64)255.0 * game->r)),
+            20.0, 50.0);
 
   SDL_UpdateWindowSurface(game->window);
 }

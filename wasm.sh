@@ -15,7 +15,7 @@ emcc \
   -sSTACK_SIZE=1mb \
   --embed-file assets@/assets \
   ../src/main.c \
-  ../src/stb_image.c \
+  ../src/stb.c \
   -o \
   softy.js
 
