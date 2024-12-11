@@ -271,16 +271,10 @@ void init(Game *game) {
 
   game->window = SDL_CreateWindow("softy", SDL_WINDOWPOS_UNDEFINED,
                                   SDL_WINDOWPOS_UNDEFINED, 640, 480, 0);
-  if (!game->window) {
-    printf("SDL error: %s", SDL_GetError());
-    exit(1);
-  }
+  ASSERT(game->window, "SDL error: %s", SDL_GetError());
 
   game->surface = SDL_GetWindowSurface(game->window);
-  if (!game->surface) {
-    printf("SDL error: %s", SDL_GetError());
-    exit(1);
-  }
+  ASSERT(game->surface, "SDL error: %s", SDL_GetError());
 
   game->dt = FRAME_TIME_S;
 
@@ -331,8 +325,22 @@ void cap_fps(Game *game) {
 void run(Game *game) {
   SDL_Event sdl_event;
   while (SDL_PollEvent(&sdl_event) != 0) {
-    if (sdl_event.type == SDL_QUIT) {
+    switch (sdl_event.type) {
+    case SDL_QUIT:
       game->stop = true;
+      break;
+    case SDL_WINDOWEVENT:
+      switch (sdl_event.window.event) {
+      case SDL_WINDOWEVENT_RESIZED:
+      case SDL_WINDOWEVENT_SIZE_CHANGED:
+        game->surface = SDL_GetWindowSurface(game->window);
+        ASSERT(game->surface, "SDL error: %s", SDL_GetError());
+        break;
+      default:
+        break;
+      }
+      break;
+    default:
       break;
     }
   }
