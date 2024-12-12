@@ -150,20 +150,61 @@ void blit_color_rect(BitMap *dst, Rect *rect_dst, u32 color, Rect *rect) {
 // Apply tint when used with 1 channel src
 void blit_bitmap(BitMap *dst, Rect *rect_dst, BitMap *src, Rect *rect_src,
                  f32 pos_x, f32 pos_y, u32 tint) {
-  ASSERT((rect_dst->width <= dst->width), "Invalid blit dest rect");
-  ASSERT((rect_dst->hight <= dst->hight), "Invalid blit dest rect");
-  ASSERT((rect_src->width <= src->hight), "Invalid blit dest rect");
-  ASSERT((rect_src->hight <= src->hight), "Invalid blit dest rect");
 
-  f32 rect_src_min_x = pos_x - rect_src->width / 2.0;
-  f32 rect_src_max_x = pos_x + rect_src->width / 2.0;
-  f32 rect_src_min_y = pos_y - rect_src->hight / 2.0;
-  f32 rect_src_max_y = pos_y + rect_src->hight / 2.0;
+  f32 rect_src_min_x;
+  f32 rect_src_max_x;
+  f32 rect_src_min_y;
+  f32 rect_src_max_y;
 
-  f32 rect_dst_min_x = rect_dst->x - rect_dst->width / 2.0;
-  f32 rect_dst_max_x = rect_dst->x + rect_dst->width / 2.0;
-  f32 rect_dst_min_y = rect_dst->y - rect_dst->hight / 2.0;
-  f32 rect_dst_max_y = rect_dst->y + rect_dst->hight / 2.0;
+  f32 rect_dst_min_x;
+  f32 rect_dst_max_x;
+  f32 rect_dst_min_y;
+  f32 rect_dst_max_y;
+
+  u8 *src_start;
+  u8 *dst_start;
+
+  if (rect_dst) {
+    ASSERT((rect_dst->width <= dst->width), "Invalid blit rect_dst");
+    ASSERT((rect_dst->hight <= dst->hight), "Invalid blit rect_dst");
+
+    rect_dst_min_x = rect_dst->x - rect_dst->width / 2.0;
+    rect_dst_max_x = rect_dst->x + rect_dst->width / 2.0;
+    rect_dst_min_y = rect_dst->y - rect_dst->hight / 2.0;
+    rect_dst_max_y = rect_dst->y + rect_dst->hight / 2.0;
+
+    dst_start =
+        dst->data + (u32)(rect_dst->x - rect_dst->width / 2.0) +
+        (u32)(rect_dst->y - rect_dst->hight / 2.0) * dst->width * dst->channels;
+  } else {
+    rect_dst_min_x = 0.0;
+    rect_dst_max_x = dst->width;
+    rect_dst_min_y = 0.0;
+    rect_dst_max_y = dst->hight;
+
+    dst_start = dst->data;
+  }
+
+  if (rect_src) {
+    ASSERT((rect_src->width <= src->hight), "Invalid blit rect_src");
+    ASSERT((rect_src->hight <= src->hight), "Invalid blit rect_src");
+
+    rect_src_min_x = pos_x - rect_src->width / 2.0;
+    rect_src_max_x = pos_x + rect_src->width / 2.0;
+    rect_src_min_y = pos_y - rect_src->hight / 2.0;
+    rect_src_max_y = pos_y + rect_src->hight / 2.0;
+
+    src_start =
+        src->data + (u32)(rect_src->x - rect_src->width / 2.0) +
+        (u32)(rect_src->y - rect_src->hight / 2.0) * src->width * src->channels;
+  } else {
+    rect_src_min_x = pos_x - src->width / 2.0;
+    rect_src_max_x = pos_x + src->width / 2.0;
+    rect_src_min_y = pos_y - src->hight / 2.0;
+    rect_src_max_y = pos_y + src->hight / 2.0;
+
+    src_start = src->data;
+  }
 
   if (rect_dst_max_x < rect_src_min_x || rect_src_max_x < rect_dst_min_x ||
       rect_src_max_y < rect_dst_min_y || rect_dst_max_y < rect_src_min_y)
@@ -186,17 +227,11 @@ void blit_bitmap(BitMap *dst, Rect *rect_dst, BitMap *src, Rect *rect_src,
   if (copy_area_width == 0 && copy_area_hight == 0)
     return;
 
-  u8 *src_start =
-      src->data + (u32)(rect_src->x - rect_src->width / 2.0) +
-      (u32)(rect_src->y - rect_src->hight / 2.0) * src->width * src->channels +
-      src_start_x_offset * src->channels +
-      src_start_y_offset * (src->width * src->channels);
+  src_start += src_start_x_offset * src->channels +
+               src_start_y_offset * (src->width * src->channels);
 
-  u8 *dst_start =
-      dst->data + (u32)(rect_dst->x - rect_dst->width / 2.0) +
-      (u32)(rect_dst->y - rect_dst->hight / 2.0) * dst->width * dst->channels +
-      dst_start_x_offset * dst->channels +
-      dst_start_y_offset * (dst->width * dst->channels);
+  dst_start += dst_start_x_offset * dst->channels +
+               dst_start_y_offset * (dst->width * dst->channels);
 
   if (src->channels == dst->channels)
     for (u32 y = 0; y < copy_area_hight; y++) {
@@ -223,12 +258,6 @@ void blit_bitmap(BitMap *dst, Rect *rect_dst, BitMap *src, Rect *rect_src,
            "No implementation for blit_bitmap from src %d channels to dst %d "
            "channels",
            src->channels, dst->channels);
-}
-
-void blit_bitmap_full(BitMap *dst, Rect *rect_dst, BitMap *src, f32 pos_x,
-                      f32 pos_y, u32 tint) {
-  Rect rect_src = bitmap_full_rect(src);
-  blit_bitmap(dst, rect_dst, src, &rect_src, pos_x, pos_y, tint);
 }
 
 void draw_char(BitMap *dst, Rect *rect_dst, Font *font, char c, u32 color,
@@ -428,8 +457,8 @@ void run(Game *game) {
   blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFFFFFFFF,
                   &game->rect);
 
-  blit_bitmap_full(&game->surface_bm, &game->surface_rect, &game->bm,
-                   game->rect.x, game->rect.y, 0);
+  blit_bitmap(&game->surface_bm, NULL, &game->bm, NULL, game->rect.x,
+              game->rect.y, 0);
 
   draw_char(&game->surface_bm, &game->surface_rect, &game->font, 'X',
             SDL_MapRGB(game->surface->format, 0, (u8)((f64)255.0 * game->r),
