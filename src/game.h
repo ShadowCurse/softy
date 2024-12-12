@@ -1,3 +1,4 @@
+#include "SDL2/SDL_surface.h"
 #include "defines.h"
 #include "log.h"
 #include "memory.h"
@@ -9,6 +10,9 @@
 #include <fcntl.h>
 #include <sys/stat.h>
 #include <time.h>
+
+#define MIN(a, b) a < b ? a : b
+#define MAX(a, b) a < b ? b : a
 
 typedef struct {
   stbtt_bakedchar *char_info;
@@ -50,73 +54,12 @@ Font load_font(Memory *memory, const char *font_path, f32 font_size,
   return font;
 }
 
-void draw_character(SDL_Surface *surface, Font *font, char c, u32 color, f32 x,
-                    f32 y) {
-  u32 char_width = font->char_info[c].x1 - font->char_info[c].x0;
-  u32 char_hight = font->char_info[c].y1 - font->char_info[c].y0;
-  u32 bitmap_min_x = font->char_info[c].x0;
-  u32 bitmap_max_x = font->char_info[c].x1;
-  u32 bitmap_min_y = font->char_info[c].y0;
-  u32 bitmap_max_y = font->char_info[c].y1;
-
-  u32 surface_min_x = 0;
-  u32 surface_max_x = surface->w;
-  u32 surface_min_y = 0;
-  u32 surface_max_y = surface->h;
-
-  if (x < (f32)char_width / 2.0) {
-    bitmap_min_x += (f32)char_width / 2.0 - x;
-  } else {
-    surface_min_x = x - (f32)char_width / 2.0;
-  }
-
-  if (surface->w < x + (f32)char_width / 2.0) {
-    bitmap_max_x -= x + (f32)char_width / 2.0 - (f32)surface->w;
-  } else {
-    surface_max_x = x + (f32)char_width / 2.0;
-  }
-
-  if (y < (f32)char_hight / 2.0) {
-    bitmap_min_y += (f32)char_hight / 2.0 - y;
-  } else {
-    surface_min_y = y - (f32)char_hight / 2.0;
-  }
-
-  if (surface->h < y + (f32)char_hight / 2.0) {
-    bitmap_max_y -= y + (f32)char_hight / 2.0 - (f32)surface->h;
-  } else {
-    surface_max_y = y + (f32)char_hight / 2.0;
-  }
-
-  u8 *surface_start =
-      surface->pixels + surface_min_x * 4 + surface_min_y * surface->pitch;
-
-  u8 *bitmap_start =
-      font->bitmap + bitmap_min_x + bitmap_min_y * font->bitmap_width;
-
-  for (int y = 0; y < bitmap_max_y - bitmap_min_y; y++) {
-    u8 *surface_row = surface_start + y * surface->pitch;
-    u8 *bitmap_row = bitmap_start + y * font->bitmap_width;
-    for (u32 x = 0; x < bitmap_max_x - bitmap_min_x; x++) {
-      f32 s = ((f32)(*(bitmap_row + x)) / 255.0);
-      u32 a = (u32)(s * (f32)((color & 0xFF000000) >> 24));
-      u32 r = (u32)(s * (f32)((color & 0x00FF0000) >> 16));
-      u32 g = (u32)(s * (f32)((color & 0x0000FF00) >> 8));
-      u32 b = (u32)(s * (f32)((color & 0x000000FF) >> 0));
-
-      *((u32 *)surface_row + x) = a << 24 | r << 16 | g << 8 | b << 0;
-    }
-  }
-}
-
-void draw_text(SDL_Surface *surface, Font *font, const char *text, u32 color,
-               f32 x, f32 y) {
-  while (*text) {
-    draw_character(surface, font, *text, color, x, y);
-    x += (f32)(font->char_info[*text].xadvance);
-    text += 1;
-  }
-}
+typedef struct {
+  f32 x;
+  f32 y;
+  f32 width;
+  f32 hight;
+} Rect;
 
 typedef struct {
   u32 width;
@@ -145,80 +88,172 @@ BitMap load_bitmap(Memory *memory, const char *filename) {
   return bm;
 }
 
-void draw_bitmap(SDL_Surface *surface, BitMap *bitmap, f32 x, f32 y) {
-  u32 bitmap_min_x = 0;
-  u32 bitmap_max_x = bitmap->width;
-  u32 bitmap_min_y = 0;
-  u32 bitmap_max_y = bitmap->hight;
+Rect bitmap_full_rect(BitMap *bm) {
+  Rect r = {
+      .x = bm->width / 2.0,
+      .y = bm->hight / 2.0,
+      .width = bm->width,
+      .hight = bm->hight,
+  };
+  return r;
+}
 
-  u32 surface_min_x = 0;
-  u32 surface_max_x = surface->w;
-  u32 surface_min_y = 0;
-  u32 surface_max_y = surface->h;
+// Set `dst` bitmap region `rect_dst` at (rect.x, rect.y) position to `color`
+// assuming `dst` top left corner is at (0,0)
+void blit_color_rect(BitMap *dst, Rect *rect_dst, u32 color, Rect *rect) {
+  ASSERT((rect_dst->width <= dst->width), "Invalid blit dest rect");
+  ASSERT((rect_dst->hight <= dst->hight), "Invalid blit dest rect");
 
-  if (x < (f32)bitmap->width / 2.0) {
-    bitmap_min_x += (f32)bitmap->width / 2.0 - x;
-  } else {
-    surface_min_x = x - (f32)bitmap->width / 2.0;
-  }
+  f32 rect_src_min_x = rect->x - rect->width / 2.0;
+  f32 rect_src_max_x = rect->x + rect->width / 2.0;
+  f32 rect_src_min_y = rect->y - rect->hight / 2.0;
+  f32 rect_src_max_y = rect->y + rect->hight / 2.0;
 
-  if (surface->w < x + (f32)bitmap->width / 2.0) {
-    bitmap_max_x -= x + (f32)bitmap->width / 2.0 - (f32)surface->w;
-  } else {
-    surface_max_x = x + (f32)bitmap->width / 2.0;
-  }
+  f32 rect_dst_min_x = rect_dst->x - rect_dst->width / 2.0;
+  f32 rect_dst_max_x = rect_dst->x + rect_dst->width / 2.0;
+  f32 rect_dst_min_y = rect_dst->y - rect_dst->hight / 2.0;
+  f32 rect_dst_max_y = rect_dst->y + rect_dst->hight / 2.0;
 
-  if (y < (f32)bitmap->hight / 2.0) {
-    bitmap_min_y += (f32)bitmap->hight / 2.0 - y;
-  } else {
-    surface_min_y = y - (f32)bitmap->hight / 2.0;
-  }
+  if (rect_dst_max_x < rect_src_min_x || rect_src_max_x < rect_dst_min_x ||
+      rect_src_max_y < rect_dst_min_y || rect_dst_max_y < rect_src_min_y)
+    return;
 
-  if (surface->h < y + (f32)bitmap->hight / 2.0) {
-    bitmap_max_y -= y + (f32)bitmap->hight / 2.0 - (f32)surface->h;
-  } else {
-    surface_max_y = y + (f32)bitmap->hight / 2.0;
-  }
+  f32 min_y = MAX(rect_dst_min_y, rect_src_min_y);
+  f32 max_y = MIN(rect_dst_max_y, rect_src_max_y);
+  f32 min_x = MAX(rect_dst_min_x, rect_src_min_x);
+  f32 max_x = MIN(rect_dst_max_x, rect_src_max_x);
 
-  u8 *surface_start =
-      surface->pixels + surface_min_x * 4 + surface_min_y * surface->pitch;
+  u32 src_start_x_offset = min_x - rect_src_min_x;
+  u32 src_start_y_offset = min_y - rect_src_min_y;
 
-  u8 *bitmap_start = bitmap->data + bitmap_min_x * bitmap->channels +
-                     bitmap_min_y * bitmap->width * bitmap->channels;
+  u32 dst_start_x_offset = min_x - rect_dst_min_x;
+  u32 dst_start_y_offset = min_y - rect_dst_min_y;
 
-  for (int y = 0; y < bitmap_max_y - bitmap_min_y; y++) {
-    u8 *surface_row = surface_start + y * surface->pitch;
-    u8 *bitmap_row = bitmap_start + y * bitmap->width * bitmap->channels;
-    memcpy(surface_row, bitmap_row, (bitmap_max_x - bitmap_min_x) * 4);
+  u32 copy_area_width = max_x - min_x;
+  u32 copy_area_hight = max_y - min_y;
+
+  if (copy_area_width == 0 && copy_area_hight == 0)
+    return;
+
+  u8 *dst_start = dst->data + dst_start_x_offset * dst->channels +
+                  dst_start_y_offset * (dst->width * dst->channels);
+  for (u32 y = 0; y < copy_area_hight; y++) {
+    u32 *dst_row = (u32 *)(dst_start + y * (dst->width * dst->channels));
+    u32 count = copy_area_width;
+    while (count--)
+      *dst_row++ = color;
   }
 }
 
-typedef struct {
-  f32 x;
-  f32 y;
-  f32 width;
-  f32 hight;
-} Rect;
+// Copy `src` bitmap region `rect_src` into a `dst` bitmap region `rect_dst`
+// at (pos_x, pos_y) position assuming `dst` top left corner is at (0,0)
+// Apply tint when used with 1 channel src
+void blit_bitmap(BitMap *dst, Rect *rect_dst, BitMap *src, Rect *rect_src,
+                 f32 pos_x, f32 pos_y, u32 tint) {
+  ASSERT((rect_dst->width <= dst->width), "Invalid blit dest rect");
+  ASSERT((rect_dst->hight <= dst->hight), "Invalid blit dest rect");
+  ASSERT((rect_src->width <= src->hight), "Invalid blit dest rect");
+  ASSERT((rect_src->hight <= src->hight), "Invalid blit dest rect");
 
-void draw_rect(SDL_Surface *surface, Rect *rect, u32 color) {
-  u32 rect_min_x = rect->x < rect->width / 2 ? 0 : rect->x - rect->width / 2;
-  u32 rect_max_x = surface->w < rect->x + rect->width / 2
-                       ? surface->w
-                       : rect->x + rect->width / 2;
+  f32 rect_src_min_x = pos_x - rect_src->width / 2.0;
+  f32 rect_src_max_x = pos_x + rect_src->width / 2.0;
+  f32 rect_src_min_y = pos_y - rect_src->hight / 2.0;
+  f32 rect_src_max_y = pos_y + rect_src->hight / 2.0;
 
-  u32 rect_min_y = rect->y < rect->hight / 2 ? 0 : rect->y - rect->hight / 2;
-  u32 rect_max_y = surface->h < rect->y + rect->hight / 2
-                       ? surface->h
-                       : rect->y + rect->hight / 2;
+  f32 rect_dst_min_x = rect_dst->x - rect_dst->width / 2.0;
+  f32 rect_dst_max_x = rect_dst->x + rect_dst->width / 2.0;
+  f32 rect_dst_min_y = rect_dst->y - rect_dst->hight / 2.0;
+  f32 rect_dst_max_y = rect_dst->y + rect_dst->hight / 2.0;
 
-  u8 *pixels_start =
-      surface->pixels + rect_min_x * 4 + rect_min_y * surface->pitch;
+  if (rect_dst_max_x < rect_src_min_x || rect_src_max_x < rect_dst_min_x ||
+      rect_src_max_y < rect_dst_min_y || rect_dst_max_y < rect_src_min_y)
+    return;
 
-  for (int y = 0; y < rect_max_y - rect_min_y; y++) {
-    u8 *row = pixels_start + y * surface->pitch;
-    for (int x = 0; x < rect_max_x - rect_min_x; x++) {
-      *((u32 *)row + x) = color;
+  f32 min_y = MAX(rect_dst_min_y, rect_src_min_y);
+  f32 max_y = MIN(rect_dst_max_y, rect_src_max_y);
+  f32 min_x = MAX(rect_dst_min_x, rect_src_min_x);
+  f32 max_x = MIN(rect_dst_max_x, rect_src_max_x);
+
+  u32 src_start_x_offset = min_x - rect_src_min_x;
+  u32 src_start_y_offset = min_y - rect_src_min_y;
+
+  u32 dst_start_x_offset = min_x - rect_dst_min_x;
+  u32 dst_start_y_offset = min_y - rect_dst_min_y;
+
+  u32 copy_area_width = max_x - min_x;
+  u32 copy_area_hight = max_y - min_y;
+
+  if (copy_area_width == 0 && copy_area_hight == 0)
+    return;
+
+  u8 *src_start =
+      src->data + (u32)(rect_src->x - rect_src->width / 2.0) +
+      (u32)(rect_src->y - rect_src->hight / 2.0) * src->width * src->channels +
+      src_start_x_offset * src->channels +
+      src_start_y_offset * (src->width * src->channels);
+
+  u8 *dst_start =
+      dst->data + (u32)(rect_dst->x - rect_dst->width / 2.0) +
+      (u32)(rect_dst->y - rect_dst->hight / 2.0) * dst->width * dst->channels +
+      dst_start_x_offset * dst->channels +
+      dst_start_y_offset * (dst->width * dst->channels);
+
+  if (src->channels == dst->channels)
+    for (u32 y = 0; y < copy_area_hight; y++) {
+      u8 *src_row = src_start + y * (src->width * src->channels);
+      u8 *dst_row = dst_start + y * (dst->width * dst->channels);
+      memcpy(dst_row, src_row, copy_area_width * dst->channels);
     }
+  else if (src->channels == 1 && dst->channels == 4)
+    for (u32 y = 0; y < copy_area_hight; y++) {
+      u8 *src_row = src_start + y * (src->width * src->channels);
+      u32 *dst_row = (u32 *)(dst_start + y * (dst->width * dst->channels));
+      for (u32 x = 0; x < copy_area_width; x++) {
+        f32 s = ((f32)(*(src_row + x)) / 255.0);
+        u32 a = (u32)(s * (f32)((tint & 0xFF000000) >> 24));
+        u32 r = (u32)(s * (f32)((tint & 0x00FF0000) >> 16));
+        u32 g = (u32)(s * (f32)((tint & 0x0000FF00) >> 8));
+        u32 b = (u32)(s * (f32)((tint & 0x000000FF) >> 0));
+
+        *(dst_row + x) = a << 24 | r << 16 | g << 8 | b << 0;
+      }
+    }
+  else
+    ASSERT(false,
+           "No implementation for blit_bitmap from src %d channels to dst %d "
+           "channels",
+           src->channels, dst->channels);
+}
+
+void blit_bitmap_full(BitMap *dst, Rect *rect_dst, BitMap *src, f32 pos_x,
+                      f32 pos_y, u32 tint) {
+  Rect rect_src = bitmap_full_rect(src);
+  blit_bitmap(dst, rect_dst, src, &rect_src, pos_x, pos_y, tint);
+}
+
+void draw_char(BitMap *dst, Rect *rect_dst, Font *font, char c, u32 color,
+               f32 x, f32 y) {
+  BitMap font_bm = {
+      .data = font->bitmap,
+      .width = font->bitmap_width,
+      .hight = font->bitmap_hight,
+      .channels = 1,
+  };
+  Rect char_rect = {
+      .x = (font->char_info[c].x1 + font->char_info[c].x0) / 2.0,
+      .y = (font->char_info[c].y1 + font->char_info[c].y0) / 2.0,
+      .width = (f32)(font->char_info[c].x1 - font->char_info[c].x0),
+      .hight = (f32)(font->char_info[c].y1 - font->char_info[c].y0),
+  };
+  blit_bitmap(dst, rect_dst, &font_bm, &char_rect, x, y, color);
+}
+
+void draw_text(BitMap *dst, Rect *rect_dst, Font *font, const char *text,
+               u32 color, f32 x, f32 y) {
+  while (*text) {
+    draw_char(dst, rect_dst, font, *text, color, x, y);
+    x += (f32)(font->char_info[*text].xadvance);
+    text++;
   }
 }
 
@@ -226,7 +261,10 @@ typedef struct {
   Memory memory;
 
   SDL_Window *window;
+
   SDL_Surface *surface;
+  BitMap surface_bm;
+  Rect surface_rect;
 
   bool stop;
   clock_t time_old;
@@ -242,6 +280,27 @@ typedef struct {
   BitMap bm;
   Font font;
 } Game;
+
+void update_window_surface(Game *game) {
+  game->surface = SDL_GetWindowSurface(game->window);
+  ASSERT(game->surface, "SDL error: %s", SDL_GetError());
+
+  BitMap surface_bm = {
+      .data = game->surface->pixels,
+      .width = game->surface->w,
+      .hight = game->surface->h,
+      .channels = 4,
+  };
+  game->surface_bm = surface_bm;
+
+  Rect surface_rect = {
+      .x = (f32)game->surface->w / 2.0,
+      .y = (f32)game->surface->h / 2.0,
+      .width = game->surface->w,
+      .hight = game->surface->h,
+  };
+  game->surface_rect = surface_rect;
+}
 
 void init(Game *game) {
   if (!init_memory(&game->memory)) {
@@ -273,8 +332,7 @@ void init(Game *game) {
                                   SDL_WINDOWPOS_UNDEFINED, 640, 480, 0);
   ASSERT(game->window, "SDL error: %s", SDL_GetError());
 
-  game->surface = SDL_GetWindowSurface(game->window);
-  ASSERT(game->surface, "SDL error: %s", SDL_GetError());
+  update_window_surface(game);
 
   game->dt = FRAME_TIME_S;
 
@@ -333,8 +391,7 @@ void run(Game *game) {
       switch (sdl_event.window.event) {
       case SDL_WINDOWEVENT_RESIZED:
       case SDL_WINDOWEVENT_SIZE_CHANGED:
-        game->surface = SDL_GetWindowSurface(game->window);
-        ASSERT(game->surface, "SDL error: %s", SDL_GetError());
+        update_window_surface(game);
         break;
       default:
         break;
@@ -368,15 +425,18 @@ void run(Game *game) {
       game->surface, 0,
       SDL_MapRGB(game->surface->format, (u8)((f64)255.0 * game->r), 0, 0));
 
-  draw_rect(game->surface, &game->rect, 0xFFFFFFFF);
-  draw_bitmap(game->surface, &game->bm, game->rect.x, game->rect.y);
-  draw_character(game->surface, &game->font, 'X',
-                 SDL_MapRGB(game->surface->format, 0,
-                            (u8)((f64)255.0 * game->r),
-                            (u8)((f64)255.0 * game->r)),
-                 20.0, 20.0);
+  blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFFFFFFFF,
+                  &game->rect);
 
-  draw_text(game->surface, &game->font, "Test text",
+  blit_bitmap_full(&game->surface_bm, &game->surface_rect, &game->bm,
+                   game->rect.x, game->rect.y, 0);
+
+  draw_char(&game->surface_bm, &game->surface_rect, &game->font, 'X',
+            SDL_MapRGB(game->surface->format, 0, (u8)((f64)255.0 * game->r),
+                       (u8)((f64)255.0 * game->r)),
+            20.0, 20.0);
+
+  draw_text(&game->surface_bm, &game->surface_rect, &game->font, "Test text",
             SDL_MapRGB(game->surface->format, 0, (u8)((f64)255.0 * game->r),
                        (u8)((f64)255.0 * game->r)),
             20.0, 50.0);
