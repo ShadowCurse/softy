@@ -307,6 +307,116 @@ void blit_bitmap(BitMap *dst, Rect *rect_dst, BitMap *src, Rect *rect_src,
            src->channels, dst->channels);
 }
 
+typedef struct {
+  f32 v0_x, v0_y;
+  f32 v1_x, v1_y;
+  f32 v2_x, v2_y;
+} Triangle;
+
+Rect triangle_aabb(Triangle *triangle) {
+  f32 min_x = MIN(MIN(triangle->v0_x, triangle->v1_x), triangle->v2_x);
+  f32 max_x = MAX(MAX(triangle->v0_x, triangle->v1_x), triangle->v2_x);
+  f32 min_y = MIN(MIN(triangle->v0_y, triangle->v1_y), triangle->v2_y);
+  f32 max_y = MAX(MAX(triangle->v0_y, triangle->v1_y), triangle->v2_y);
+  Rect result = {
+      .x = (min_x + max_x) / 2.0,
+      .y = (min_y + max_y) / 2.0,
+      .width = max_x - min_x,
+      .hight = max_y - min_y,
+  };
+  return result;
+}
+
+f32 perp_dot(f32 a_x, f32 a_y, f32 b_x, f32 b_y) {
+  return a_x * b_y - a_y * b_x;
+}
+
+void draw_triangle(BitMap *dst, Rect *rect_dst, u32 color, Triangle triangle) {
+  Rect aabb = triangle_aabb(&triangle);
+
+  f32 rect_src_min_x = aabb.x - aabb.width / 2.0;
+  f32 rect_src_max_x = aabb.x + aabb.width / 2.0;
+  f32 rect_src_min_y = aabb.y - aabb.hight / 2.0;
+  f32 rect_src_max_y = aabb.y + aabb.hight / 2.0;
+
+  f32 rect_dst_min_x;
+  f32 rect_dst_max_x;
+  f32 rect_dst_min_y;
+  f32 rect_dst_max_y;
+
+  u8 *dst_start;
+
+  if (rect_dst) {
+    ASSERT((rect_dst->width <= dst->width), "Invalid blit rect_dst");
+    ASSERT((rect_dst->hight <= dst->hight), "Invalid blit rect_dst");
+
+    rect_dst_min_x = rect_dst->x - rect_dst->width / 2.0;
+    rect_dst_max_x = rect_dst->x + rect_dst->width / 2.0;
+    rect_dst_min_y = rect_dst->y - rect_dst->hight / 2.0;
+    rect_dst_max_y = rect_dst->y + rect_dst->hight / 2.0;
+
+    dst_start =
+        dst->data + (u32)(rect_dst->x - rect_dst->width / 2.0) +
+        (u32)(rect_dst->y - rect_dst->hight / 2.0) * dst->width * dst->channels;
+  } else {
+    rect_dst_min_x = 0.0;
+    rect_dst_max_x = dst->width;
+    rect_dst_min_y = 0.0;
+    rect_dst_max_y = dst->hight;
+
+    dst_start = dst->data;
+  }
+
+  f32 min_y = MAX(rect_dst_min_y, rect_src_min_y);
+  f32 max_y = MIN(rect_dst_max_y, rect_src_max_y);
+  f32 min_x = MAX(rect_dst_min_x, rect_src_min_x);
+  f32 max_x = MIN(rect_dst_max_x, rect_src_max_x);
+
+  u32 dst_start_x_offset = min_x - rect_dst_min_x;
+  u32 dst_start_y_offset = min_y - rect_dst_min_y;
+
+  u32 copy_area_width = max_x - min_x;
+  u32 copy_area_hight = max_y - min_y;
+
+  if (copy_area_width == 0 && copy_area_hight == 0)
+    return;
+
+  dst_start += dst_start_x_offset * dst->channels +
+               dst_start_y_offset * (dst->width * dst->channels);
+
+  for (u32 y = 0; y < copy_area_hight; y++) {
+    u8 *dst_row = dst_start + y * (dst->width * dst->channels);
+    for (u32 x = 0; x < copy_area_width; x++) {
+      f32 p_x = min_x + (f32)x;
+      f32 p_y = min_y + (f32)y;
+
+      f32 v0v1_x = triangle.v1_x - triangle.v0_x;
+      f32 v0v1_y = triangle.v1_y - triangle.v0_y;
+      f32 v0p_x = p_x - triangle.v0_x;
+      f32 v0p_y = p_y - triangle.v0_y;
+
+      f32 v1v2_x = triangle.v2_x - triangle.v1_x;
+      f32 v1v2_y = triangle.v2_y - triangle.v1_y;
+      f32 v1p_x = p_x - triangle.v1_x;
+      f32 v1p_y = p_y - triangle.v1_y;
+
+      f32 v2v0_x = triangle.v0_x - triangle.v2_x;
+      f32 v2v0_y = triangle.v0_y - triangle.v2_y;
+      f32 v2p_x = p_x - triangle.v2_x;
+      f32 v2p_y = p_y - triangle.v2_y;
+
+      f32 c1 = perp_dot(v0v1_x, v0v1_y, v0p_x, v0p_y);
+      f32 c2 = perp_dot(v1v2_x, v1v2_y, v1p_x, v1p_y);
+      f32 c3 = perp_dot(v2v0_x, v2v0_y, v2p_x, v2p_y);
+
+      if (c1 <= 0.0 && c2 <= 0.0 && c3 <= 0.0) {
+        u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
+        *dst_color = color;
+      }
+    }
+  }
+}
+
 void draw_char(BitMap *dst, Rect *rect_dst, Font *font, char c, u32 color,
                f32 x, f32 y) {
   BitMap font_bm = {
@@ -503,6 +613,16 @@ void run(Game *game) {
   SDL_FillRect(
       game->surface, 0,
       SDL_MapRGB(game->surface->format, (u8)((f64)255.0 * game->r), 0, 0));
+
+  Triangle t = {
+      .v0_x = 0.0,
+      .v0_y = WINDOW_HIGHT,
+      .v1_x = WINDOW_WIDTH,
+      .v1_y = WINDOW_HIGHT,
+      .v2_x = WINDOW_WIDTH / 2.0,
+      .v2_y = 0.0,
+  };
+  draw_triangle(&game->surface_bm, NULL, 0xFF0000FF, t);
 
   blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFF666666,
                   &game->rect);
