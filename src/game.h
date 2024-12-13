@@ -1,6 +1,7 @@
 #include "SDL2/SDL_surface.h"
 #include "defines.h"
 #include "log.h"
+#include "math.h"
 #include "memory.h"
 #include <SDL2/SDL.h>
 
@@ -13,9 +14,6 @@
 
 #define WINDOW_WIDTH 1280
 #define WINDOW_HIGHT 720
-
-#define MIN(a, b) a < b ? a : b
-#define MAX(a, b) a < b ? b : a
 
 typedef struct {
   stbtt_bakedchar *char_info;
@@ -58,13 +56,6 @@ Font load_font(Memory *memory, const char *font_path, f32 font_size,
 }
 
 typedef struct {
-  f32 x;
-  f32 y;
-  f32 width;
-  f32 hight;
-} Rect;
-
-typedef struct {
   u32 width;
   u32 hight;
   u32 channels;
@@ -93,15 +84,12 @@ BitMap load_bitmap(Memory *memory, const char *filename) {
 
 Rect bitmap_full_rect(BitMap *bm) {
   Rect r = {
-      .x = bm->width / 2.0,
-      .y = bm->hight / 2.0,
+      .pos = {bm->width / 2.0, bm->hight / 2.0},
       .width = bm->width,
       .hight = bm->hight,
   };
   return r;
 }
-
-f32 lerp(f32 a, f32 b, f32 t) { return a * (1.0 - t) + b * t; }
 
 // Set `dst` bitmap region `rect_dst` at (rect.x, rect.y) position to `color`
 // assuming `dst` top left corner is at (0,0)
@@ -109,39 +97,23 @@ void blit_color_rect(BitMap *dst, Rect *rect_dst, u32 color, Rect *rect) {
   ASSERT((rect_dst->width <= dst->width), "Invalid blit dest rect");
   ASSERT((rect_dst->hight <= dst->hight), "Invalid blit dest rect");
 
-  f32 rect_src_min_x = rect->x - rect->width / 2.0;
-  f32 rect_src_max_x = rect->x + rect->width / 2.0;
-  f32 rect_src_min_y = rect->y - rect->hight / 2.0;
-  f32 rect_src_max_y = rect->y + rect->hight / 2.0;
-
-  f32 rect_dst_min_x = rect_dst->x - rect_dst->width / 2.0;
-  f32 rect_dst_max_x = rect_dst->x + rect_dst->width / 2.0;
-  f32 rect_dst_min_y = rect_dst->y - rect_dst->hight / 2.0;
-  f32 rect_dst_max_y = rect_dst->y + rect_dst->hight / 2.0;
-
-  if (rect_dst_max_x < rect_src_min_x || rect_src_max_x < rect_dst_min_x ||
-      rect_src_max_y < rect_dst_min_y || rect_dst_max_y < rect_src_min_y)
+  AABB aabb_src = rect_aabb(rect);
+  AABB aabb_dst = rect_aabb(rect_dst);
+  if (!aabb_intersect(&aabb_src, &aabb_dst))
     return;
 
-  f32 min_y = MAX(rect_dst_min_y, rect_src_min_y);
-  f32 max_y = MIN(rect_dst_max_y, rect_src_max_y);
-  f32 min_x = MAX(rect_dst_min_x, rect_src_min_x);
-  f32 max_x = MIN(rect_dst_max_x, rect_src_max_x);
+  AABB intersection = aabb_intersection(&aabb_src, &aabb_dst);
 
-  u32 src_start_x_offset = min_x - rect_src_min_x;
-  u32 src_start_y_offset = min_y - rect_src_min_y;
-
-  u32 dst_start_x_offset = min_x - rect_dst_min_x;
-  u32 dst_start_y_offset = min_y - rect_dst_min_y;
-
-  u32 copy_area_width = max_x - min_x;
-  u32 copy_area_hight = max_y - min_y;
-
+  u32 copy_area_width = aabb_width(&intersection);
+  u32 copy_area_hight = aabb_hight(&intersection);
   if (copy_area_width == 0 && copy_area_hight == 0)
     return;
 
-  u8 *dst_start = dst->data + dst_start_x_offset * dst->channels +
-                  dst_start_y_offset * (dst->width * dst->channels);
+  V2 src_start_offset = v2_sub(intersection.min, aabb_src.min);
+  V2 dst_start_offset = v2_sub(intersection.min, aabb_dst.min);
+
+  u8 *dst_start = dst->data + (u32)dst_start_offset.x * dst->channels +
+                  (u32)dst_start_offset.y * (dst->width * dst->channels);
   for (u32 y = 0; y < copy_area_hight; y++) {
     u32 *dst_row = (u32 *)(dst_start + y * (dst->width * dst->channels));
     u32 count = copy_area_width;
@@ -154,89 +126,53 @@ void blit_color_rect(BitMap *dst, Rect *rect_dst, u32 color, Rect *rect) {
 // at (pos_x, pos_y) position assuming `dst` top left corner is at (0,0)
 // Apply tint when used with 1 channel src
 void blit_bitmap(BitMap *dst, Rect *rect_dst, BitMap *src, Rect *rect_src,
-                 f32 pos_x, f32 pos_y, u32 tint) {
-
-  f32 rect_src_min_x;
-  f32 rect_src_max_x;
-  f32 rect_src_min_y;
-  f32 rect_src_max_y;
-
-  f32 rect_dst_min_x;
-  f32 rect_dst_max_x;
-  f32 rect_dst_min_y;
-  f32 rect_dst_max_y;
-
+                 V2 pos, u32 tint) {
+  AABB aabb_src;
   u8 *src_start;
-  u8 *dst_start;
-
-  if (rect_dst) {
-    ASSERT((rect_dst->width <= dst->width), "Invalid blit rect_dst");
-    ASSERT((rect_dst->hight <= dst->hight), "Invalid blit rect_dst");
-
-    rect_dst_min_x = rect_dst->x - rect_dst->width / 2.0;
-    rect_dst_max_x = rect_dst->x + rect_dst->width / 2.0;
-    rect_dst_min_y = rect_dst->y - rect_dst->hight / 2.0;
-    rect_dst_max_y = rect_dst->y + rect_dst->hight / 2.0;
-
-    dst_start =
-        dst->data + (u32)(rect_dst->x - rect_dst->width / 2.0) +
-        (u32)(rect_dst->y - rect_dst->hight / 2.0) * dst->width * dst->channels;
-  } else {
-    rect_dst_min_x = 0.0;
-    rect_dst_max_x = dst->width;
-    rect_dst_min_y = 0.0;
-    rect_dst_max_y = dst->hight;
-
-    dst_start = dst->data;
-  }
-
   if (rect_src) {
     ASSERT((rect_src->width <= src->hight), "Invalid blit rect_src");
     ASSERT((rect_src->hight <= src->hight), "Invalid blit rect_src");
-
-    rect_src_min_x = pos_x - rect_src->width / 2.0;
-    rect_src_max_x = pos_x + rect_src->width / 2.0;
-    rect_src_min_y = pos_y - rect_src->hight / 2.0;
-    rect_src_max_y = pos_y + rect_src->hight / 2.0;
-
-    src_start =
-        src->data + (u32)(rect_src->x - rect_src->width / 2.0) +
-        (u32)(rect_src->y - rect_src->hight / 2.0) * src->width * src->channels;
+    aabb_src = aabb_from_parts(pos, (V2){rect_src->width, rect_src->hight});
+    src_start = src->data + (u32)(rect_src->pos.x - rect_src->width / 2.0) +
+                (u32)(rect_src->pos.y - rect_src->hight / 2.0) * src->width *
+                    src->channels;
   } else {
-    rect_src_min_x = pos_x - src->width / 2.0;
-    rect_src_max_x = pos_x + src->width / 2.0;
-    rect_src_min_y = pos_y - src->hight / 2.0;
-    rect_src_max_y = pos_y + src->hight / 2.0;
-
+    aabb_src = aabb_from_parts(pos, (V2){src->width, src->hight});
     src_start = src->data;
   }
 
-  if (rect_dst_max_x < rect_src_min_x || rect_src_max_x < rect_dst_min_x ||
-      rect_src_max_y < rect_dst_min_y || rect_dst_max_y < rect_src_min_y)
+  AABB aabb_dst;
+  u8 *dst_start;
+  if (rect_dst) {
+    ASSERT((rect_dst->width <= dst->width), "Invalid blit rect_dst");
+    ASSERT((rect_dst->hight <= dst->hight), "Invalid blit rect_dst");
+    aabb_dst = rect_aabb(rect_dst);
+    dst_start = dst->data + (u32)(rect_dst->pos.x - rect_dst->width / 2.0) +
+                (u32)(rect_dst->pos.y - rect_dst->hight / 2.0) * dst->width *
+                    dst->channels;
+  } else {
+    aabb_dst = (AABB){{0.0, 0.0}, {dst->width, dst->hight}};
+    dst_start = dst->data;
+  }
+
+  if (!aabb_intersect(&aabb_src, &aabb_dst))
     return;
 
-  f32 min_y = MAX(rect_dst_min_y, rect_src_min_y);
-  f32 max_y = MIN(rect_dst_max_y, rect_src_max_y);
-  f32 min_x = MAX(rect_dst_min_x, rect_src_min_x);
-  f32 max_x = MIN(rect_dst_max_x, rect_src_max_x);
+  AABB intersection = aabb_intersection(&aabb_src, &aabb_dst);
 
-  u32 src_start_x_offset = min_x - rect_src_min_x;
-  u32 src_start_y_offset = min_y - rect_src_min_y;
-
-  u32 dst_start_x_offset = min_x - rect_dst_min_x;
-  u32 dst_start_y_offset = min_y - rect_dst_min_y;
-
-  u32 copy_area_width = max_x - min_x;
-  u32 copy_area_hight = max_y - min_y;
-
+  u32 copy_area_width = aabb_width(&intersection);
+  u32 copy_area_hight = aabb_hight(&intersection);
   if (copy_area_width == 0 && copy_area_hight == 0)
     return;
 
-  src_start += src_start_x_offset * src->channels +
-               src_start_y_offset * (src->width * src->channels);
+  V2 src_start_offset = v2_sub(intersection.min, aabb_src.min);
+  V2 dst_start_offset = v2_sub(intersection.min, aabb_dst.min);
 
-  dst_start += dst_start_x_offset * dst->channels +
-               dst_start_y_offset * (dst->width * dst->channels);
+  src_start += (u32)src_start_offset.x * src->channels +
+               (u32)src_start_offset.y * (src->width * src->channels);
+
+  dst_start += (u32)dst_start_offset.x * dst->channels +
+               (u32)dst_start_offset.y * (dst->width * dst->channels);
 
   f32 tint_mul_a = (f32)((tint >> 24) & 0xFF) / 255.0;
   f32 tint_mul_r = (f32)((tint >> 16) & 0xFF) / 255.0;
@@ -307,107 +243,54 @@ void blit_bitmap(BitMap *dst, Rect *rect_dst, BitMap *src, Rect *rect_src,
            src->channels, dst->channels);
 }
 
-typedef struct {
-  f32 v0_x, v0_y;
-  f32 v1_x, v1_y;
-  f32 v2_x, v2_y;
-} Triangle;
-
-Rect triangle_aabb(Triangle *triangle) {
-  f32 min_x = MIN(MIN(triangle->v0_x, triangle->v1_x), triangle->v2_x);
-  f32 max_x = MAX(MAX(triangle->v0_x, triangle->v1_x), triangle->v2_x);
-  f32 min_y = MIN(MIN(triangle->v0_y, triangle->v1_y), triangle->v2_y);
-  f32 max_y = MAX(MAX(triangle->v0_y, triangle->v1_y), triangle->v2_y);
-  Rect result = {
-      .x = (min_x + max_x) / 2.0,
-      .y = (min_y + max_y) / 2.0,
-      .width = max_x - min_x,
-      .hight = max_y - min_y,
-  };
-  return result;
-}
-
-f32 perp_dot(f32 a_x, f32 a_y, f32 b_x, f32 b_y) {
-  return a_x * b_y - a_y * b_x;
-}
-
 void draw_triangle(BitMap *dst, Rect *rect_dst, u32 color, Triangle triangle) {
-  Rect aabb = triangle_aabb(&triangle);
+  AABB aabb_tri = triangle_aabb(&triangle);
 
-  f32 rect_src_min_x = aabb.x - aabb.width / 2.0;
-  f32 rect_src_max_x = aabb.x + aabb.width / 2.0;
-  f32 rect_src_min_y = aabb.y - aabb.hight / 2.0;
-  f32 rect_src_max_y = aabb.y + aabb.hight / 2.0;
-
-  f32 rect_dst_min_x;
-  f32 rect_dst_max_x;
-  f32 rect_dst_min_y;
-  f32 rect_dst_max_y;
-
+  AABB aabb_dst;
   u8 *dst_start;
-
   if (rect_dst) {
     ASSERT((rect_dst->width <= dst->width), "Invalid blit rect_dst");
     ASSERT((rect_dst->hight <= dst->hight), "Invalid blit rect_dst");
-
-    rect_dst_min_x = rect_dst->x - rect_dst->width / 2.0;
-    rect_dst_max_x = rect_dst->x + rect_dst->width / 2.0;
-    rect_dst_min_y = rect_dst->y - rect_dst->hight / 2.0;
-    rect_dst_max_y = rect_dst->y + rect_dst->hight / 2.0;
-
-    dst_start =
-        dst->data + (u32)(rect_dst->x - rect_dst->width / 2.0) +
-        (u32)(rect_dst->y - rect_dst->hight / 2.0) * dst->width * dst->channels;
+    aabb_dst = rect_aabb(rect_dst);
+    dst_start = dst->data + (u32)(rect_dst->pos.x - rect_dst->width / 2.0) +
+                (u32)(rect_dst->pos.y - rect_dst->hight / 2.0) * dst->width *
+                    dst->channels;
   } else {
-    rect_dst_min_x = 0.0;
-    rect_dst_max_x = dst->width;
-    rect_dst_min_y = 0.0;
-    rect_dst_max_y = dst->hight;
-
+    aabb_dst = (AABB){{0.0, 0.0}, {dst->width, dst->hight}};
     dst_start = dst->data;
   }
 
-  f32 min_y = MAX(rect_dst_min_y, rect_src_min_y);
-  f32 max_y = MIN(rect_dst_max_y, rect_src_max_y);
-  f32 min_x = MAX(rect_dst_min_x, rect_src_min_x);
-  f32 max_x = MIN(rect_dst_max_x, rect_src_max_x);
+  if (!aabb_intersect(&aabb_tri, &aabb_dst))
+    return;
 
-  u32 dst_start_x_offset = min_x - rect_dst_min_x;
-  u32 dst_start_y_offset = min_y - rect_dst_min_y;
+  AABB intersection = aabb_intersection(&aabb_tri, &aabb_dst);
 
-  u32 copy_area_width = max_x - min_x;
-  u32 copy_area_hight = max_y - min_y;
-
+  u32 copy_area_width = aabb_width(&intersection);
+  u32 copy_area_hight = aabb_hight(&intersection);
   if (copy_area_width == 0 && copy_area_hight == 0)
     return;
 
-  dst_start += dst_start_x_offset * dst->channels +
-               dst_start_y_offset * (dst->width * dst->channels);
+  V2 dst_start_offset = v2_sub(intersection.min, aabb_dst.min);
+  dst_start += (u32)dst_start_offset.x * dst->channels +
+               (u32)dst_start_offset.y * (dst->width * dst->channels);
 
   for (u32 y = 0; y < copy_area_hight; y++) {
     u8 *dst_row = dst_start + y * (dst->width * dst->channels);
     for (u32 x = 0; x < copy_area_width; x++) {
-      f32 p_x = min_x + (f32)x;
-      f32 p_y = min_y + (f32)y;
+      V2 p = {intersection.min.x + (f32)x, intersection.min.y + (f32)y};
 
-      f32 v0v1_x = triangle.v1_x - triangle.v0_x;
-      f32 v0v1_y = triangle.v1_y - triangle.v0_y;
-      f32 v0p_x = p_x - triangle.v0_x;
-      f32 v0p_y = p_y - triangle.v0_y;
+      V2 v0v1 = v2_sub(triangle.v1, triangle.v0);
+      V2 v0p = v2_sub(p, triangle.v0);
 
-      f32 v1v2_x = triangle.v2_x - triangle.v1_x;
-      f32 v1v2_y = triangle.v2_y - triangle.v1_y;
-      f32 v1p_x = p_x - triangle.v1_x;
-      f32 v1p_y = p_y - triangle.v1_y;
+      V2 v1v2 = v2_sub(triangle.v2, triangle.v1);
+      V2 v1p = v2_sub(p, triangle.v1);
 
-      f32 v2v0_x = triangle.v0_x - triangle.v2_x;
-      f32 v2v0_y = triangle.v0_y - triangle.v2_y;
-      f32 v2p_x = p_x - triangle.v2_x;
-      f32 v2p_y = p_y - triangle.v2_y;
+      V2 v2v0 = v2_sub(triangle.v0, triangle.v2);
+      V2 v2p = v2_sub(p, triangle.v2);
 
-      f32 c1 = perp_dot(v0v1_x, v0v1_y, v0p_x, v0p_y);
-      f32 c2 = perp_dot(v1v2_x, v1v2_y, v1p_x, v1p_y);
-      f32 c3 = perp_dot(v2v0_x, v2v0_y, v2p_x, v2p_y);
+      f32 c1 = perp_dot(v0v1, v0p);
+      f32 c2 = perp_dot(v1v2, v1p);
+      f32 c3 = perp_dot(v2v0, v2p);
 
       if (c1 <= 0.0 && c2 <= 0.0 && c3 <= 0.0) {
         u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
@@ -418,7 +301,7 @@ void draw_triangle(BitMap *dst, Rect *rect_dst, u32 color, Triangle triangle) {
 }
 
 void draw_char(BitMap *dst, Rect *rect_dst, Font *font, char c, u32 color,
-               f32 x, f32 y) {
+               V2 pos) {
   BitMap font_bm = {
       .data = font->bitmap,
       .width = font->bitmap_width,
@@ -426,19 +309,19 @@ void draw_char(BitMap *dst, Rect *rect_dst, Font *font, char c, u32 color,
       .channels = 1,
   };
   Rect char_rect = {
-      .x = (font->char_info[c].x1 + font->char_info[c].x0) / 2.0,
-      .y = (font->char_info[c].y1 + font->char_info[c].y0) / 2.0,
+      .pos = {(font->char_info[c].x1 + font->char_info[c].x0) / 2.0,
+              (font->char_info[c].y1 + font->char_info[c].y0) / 2.0},
       .width = (f32)(font->char_info[c].x1 - font->char_info[c].x0),
       .hight = (f32)(font->char_info[c].y1 - font->char_info[c].y0),
   };
-  blit_bitmap(dst, rect_dst, &font_bm, &char_rect, x, y, color);
+  blit_bitmap(dst, rect_dst, &font_bm, &char_rect, pos, color);
 }
 
 void draw_text(BitMap *dst, Rect *rect_dst, Font *font, const char *text,
-               u32 color, f32 x, f32 y) {
+               u32 color, V2 pos) {
   while (*text) {
-    draw_char(dst, rect_dst, font, *text, color, x, y);
-    x += (f32)(font->char_info[*text].xadvance);
+    draw_char(dst, rect_dst, font, *text, color, pos);
+    pos.x += (f32)(font->char_info[*text].xadvance);
     text++;
   }
 }
@@ -460,8 +343,7 @@ typedef struct {
   f64 r;
 
   Rect rect;
-  f32 rect_vel_x;
-  f32 rect_vel_y;
+  V2 rect_vel;
 
   BitMap bm;
   Font font;
@@ -480,8 +362,7 @@ void update_window_surface(Game *game) {
   game->surface_bm = surface_bm;
 
   Rect surface_rect = {
-      .x = (f32)game->surface->w / 2.0,
-      .y = (f32)game->surface->h / 2.0,
+      .pos = {(f32)game->surface->w / 2.0, (f32)game->surface->h / 2.0},
       .width = game->surface->w,
       .hight = game->surface->h,
   };
@@ -526,14 +407,12 @@ void init(Game *game) {
   game->r = 0.0;
 
   Rect rect = {
-      .x = 0.0,
-      .y = 0.0,
+      .pos = {0.0, 0.0},
       .width = 100.0,
       .hight = 150.0,
   };
   game->rect = rect;
-  game->rect_vel_x = 1.2;
-  game->rect_vel_y = 2.1;
+  game->rect_vel = (V2){1.2, 2.1};
 
   game->bm = load_bitmap(&game->memory, "assets/a.png");
   game->font = load_font(&game->memory, "assets/font.ttf", 32.0, 512, 512);
@@ -600,14 +479,13 @@ void run(Game *game) {
     game->r = 0;
   }
 
-  game->rect.x += game->rect_vel_x;
-  game->rect.y += game->rect_vel_y;
+  game->rect.pos = v2_add(game->rect.pos, game->rect_vel);
 
-  if (game->rect.x < 0 || game->surface->w < game->rect.x) {
-    game->rect_vel_x *= -1;
+  if (game->rect.pos.x < 0 || game->surface->w < game->rect.pos.x) {
+    game->rect_vel.x *= -1;
   }
-  if (game->rect.y < 0 || game->surface->h < game->rect.y) {
-    game->rect_vel_y *= -1;
+  if (game->rect.pos.y < 0 || game->surface->h < game->rect.pos.y) {
+    game->rect_vel.y *= -1;
   }
 
   SDL_FillRect(
@@ -615,25 +493,22 @@ void run(Game *game) {
       SDL_MapRGB(game->surface->format, (u8)((f64)255.0 * game->r), 0, 0));
 
   Triangle t = {
-      .v0_x = 0.0,
-      .v0_y = WINDOW_HIGHT,
-      .v1_x = WINDOW_WIDTH,
-      .v1_y = WINDOW_HIGHT,
-      .v2_x = WINDOW_WIDTH / 2.0,
-      .v2_y = 0.0,
+      .v0 = {0.0, WINDOW_HIGHT},
+      .v1 = {WINDOW_WIDTH, WINDOW_HIGHT},
+      .v2 = {WINDOW_WIDTH / 2.0, 0.0},
   };
   draw_triangle(&game->surface_bm, NULL, 0xFF0000FF, t);
 
   blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFF666666,
                   &game->rect);
 
-  blit_bitmap(&game->surface_bm, NULL, &game->bm, NULL, game->rect.x,
-              game->rect.y, 0xFF0033EE);
+  blit_bitmap(&game->surface_bm, NULL, &game->bm, NULL, game->rect.pos,
+              0xFF0033EE);
 
   char *buf = frame_alloc((&game->memory), char[70]);
   snprintf(buf, 70, "FPS: %.02f dt: %.5f", 1.0 / game->dt, game->dt);
   draw_text(&game->surface_bm, &game->surface_rect, &game->font, buf,
-            0xFF00FF00, 20.0, 20.0);
+            0xFF00FF00, (V2){20.0, 20.0});
 
   SDL_UpdateWindowSurface(game->window);
 }
