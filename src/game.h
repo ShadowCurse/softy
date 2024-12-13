@@ -101,6 +101,8 @@ Rect bitmap_full_rect(BitMap *bm) {
   return r;
 }
 
+f32 lerp(f32 a, f32 b, f32 t) { return a * (1.0 - t) + b * t; }
+
 // Set `dst` bitmap region `rect_dst` at (rect.x, rect.y) position to `color`
 // assuming `dst` top left corner is at (0,0)
 void blit_color_rect(BitMap *dst, Rect *rect_dst, u32 color, Rect *rect) {
@@ -236,24 +238,66 @@ void blit_bitmap(BitMap *dst, Rect *rect_dst, BitMap *src, Rect *rect_src,
   dst_start += dst_start_x_offset * dst->channels +
                dst_start_y_offset * (dst->width * dst->channels);
 
+  f32 tint_mul_a = (f32)((tint >> 24) & 0xFF) / 255.0;
+  f32 tint_mul_r = (f32)((tint >> 16) & 0xFF) / 255.0;
+  f32 tint_mul_g = (f32)((tint >> 8) & 0xFF) / 255.0;
+  f32 tint_mul_b = (f32)((tint >> 0) & 0xFF) / 255.0;
+
   if (src->channels == dst->channels)
     for (u32 y = 0; y < copy_area_hight; y++) {
       u8 *src_row = src_start + y * (src->width * src->channels);
       u8 *dst_row = dst_start + y * (dst->width * dst->channels);
-      memcpy(dst_row, src_row, copy_area_width * dst->channels);
+      for (u32 x = 0; x < copy_area_width; x++) {
+        u32 *src_color = (u32 *)(src_row + x * src->channels);
+        f32 src_a = (f32)((*src_color >> 24) & 0xFF) / 255.0;
+        f32 src_r = (f32)((*src_color >> 16) & 0xFF);
+        f32 src_g = (f32)((*src_color >> 8) & 0xFF);
+        f32 src_b = (f32)((*src_color >> 0) & 0xFF);
+
+        src_a *= tint_mul_a;
+        src_r *= tint_mul_r;
+        src_g *= tint_mul_g;
+        src_b *= tint_mul_b;
+
+        u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
+        f32 dst_r = (f32)((*dst_color >> 16) & 0xFF);
+        f32 dst_g = (f32)((*dst_color >> 8) & 0xFF);
+        f32 dst_b = (f32)((*dst_color >> 0) & 0xFF);
+
+        u32 out_r = (u32)(lerp(dst_r, src_r, src_a));
+        u32 out_g = (u32)(lerp(dst_g, src_g, src_a));
+        u32 out_b = (u32)(lerp(dst_b, src_b, src_a));
+
+        *dst_color = out_r << 16 | out_g << 8 | out_b << 0;
+      }
     }
   else if (src->channels == 1 && dst->channels == 4)
     for (u32 y = 0; y < copy_area_hight; y++) {
       u8 *src_row = src_start + y * (src->width * src->channels);
-      u32 *dst_row = (u32 *)(dst_start + y * (dst->width * dst->channels));
+      u8 *dst_row = dst_start + y * (dst->width * dst->channels);
       for (u32 x = 0; x < copy_area_width; x++) {
-        f32 s = ((f32)(*(src_row + x)) / 255.0);
-        u32 a = (u32)(s * (f32)((tint & 0xFF000000) >> 24));
-        u32 r = (u32)(s * (f32)((tint & 0x00FF0000) >> 16));
-        u32 g = (u32)(s * (f32)((tint & 0x0000FF00) >> 8));
-        u32 b = (u32)(s * (f32)((tint & 0x000000FF) >> 0));
+        u8 src_color = *(src_row + x);
+        f32 src_a = (f32)(src_color) / 255.0;
+        f32 src_r = src_color;
+        f32 src_g = src_color;
+        f32 src_b = src_color;
 
-        *(dst_row + x) = a << 24 | r << 16 | g << 8 | b << 0;
+        src_a *= tint_mul_a;
+        src_r *= tint_mul_r;
+        src_g *= tint_mul_g;
+        src_b *= tint_mul_b;
+
+        u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
+        f32 dst_r = (f32)((*dst_color >> 16) & 0xFF);
+        f32 dst_g = (f32)((*dst_color >> 8) & 0xFF);
+        f32 dst_b = (f32)((*dst_color >> 0) & 0xFF);
+
+        u32 out_r = (u32)(lerp(dst_r, src_r, src_a));
+        u32 out_g = (u32)(lerp(dst_g, src_g, src_a));
+        u32 out_b = (u32)(lerp(dst_b, src_b, src_a));
+
+        // *(dst_row + x) = a << 24 | r << 16 | g << 8 | b << 0;
+        *dst_color = out_r << 16 | out_g << 8 | out_b << 0;
       }
     }
   else
@@ -360,8 +404,9 @@ void init(Game *game) {
 
   SDL_Init(SDL_INIT_VIDEO);
 
-  game->window = SDL_CreateWindow("softy", SDL_WINDOWPOS_UNDEFINED,
-                                  SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HIGHT, 0);
+  game->window =
+      SDL_CreateWindow("softy", SDL_WINDOWPOS_UNDEFINED,
+                       SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HIGHT, 0);
   ASSERT(game->window, "SDL error: %s", SDL_GetError());
 
   update_window_surface(game);
@@ -459,18 +504,16 @@ void run(Game *game) {
       game->surface, 0,
       SDL_MapRGB(game->surface->format, (u8)((f64)255.0 * game->r), 0, 0));
 
-  blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFFFFFFFF,
+  blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFF666666,
                   &game->rect);
 
   blit_bitmap(&game->surface_bm, NULL, &game->bm, NULL, game->rect.x,
-              game->rect.y, 0);
+              game->rect.y, 0xFF0033EE);
 
-  char* buf = frame_alloc((&game->memory), char[70]); 
+  char *buf = frame_alloc((&game->memory), char[70]);
   snprintf(buf, 70, "FPS: %.02f dt: %.5f", 1.0 / game->dt, game->dt);
   draw_text(&game->surface_bm, &game->surface_rect, &game->font, buf,
-            SDL_MapRGB(game->surface->format, 0, (u8)((f64)255.0 * game->r),
-                       (u8)((f64)255.0 * game->r)),
-            20.0, 20.0);
+            0xFF00FF00, 20.0, 20.0);
 
   SDL_UpdateWindowSurface(game->window);
 }
