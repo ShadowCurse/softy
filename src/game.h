@@ -11,6 +11,9 @@
 #include <sys/stat.h>
 #include <time.h>
 
+#define WINDOW_WIDTH 1280
+#define WINDOW_HIGHT 720
+
 #define MIN(a, b) a < b ? a : b
 #define MAX(a, b) a < b ? b : a
 
@@ -358,7 +361,7 @@ void init(Game *game) {
   SDL_Init(SDL_INIT_VIDEO);
 
   game->window = SDL_CreateWindow("softy", SDL_WINDOWPOS_UNDEFINED,
-                                  SDL_WINDOWPOS_UNDEFINED, 640, 480, 0);
+                                  SDL_WINDOWPOS_UNDEFINED, WINDOW_WIDTH, WINDOW_HIGHT, 0);
   ASSERT(game->window, "SDL error: %s", SDL_GetError());
 
   update_window_surface(game);
@@ -410,6 +413,8 @@ void cap_fps(Game *game) {
 #endif
 
 void run(Game *game) {
+  frame_reset(&game->memory);
+
   SDL_Event sdl_event;
   while (SDL_PollEvent(&sdl_event) != 0) {
     switch (sdl_event.type) {
@@ -460,15 +465,12 @@ void run(Game *game) {
   blit_bitmap(&game->surface_bm, NULL, &game->bm, NULL, game->rect.x,
               game->rect.y, 0);
 
-  draw_char(&game->surface_bm, &game->surface_rect, &game->font, 'X',
+  char* buf = frame_alloc((&game->memory), char[70]); 
+  snprintf(buf, 70, "FPS: %.02f dt: %.5f", 1.0 / game->dt, game->dt);
+  draw_text(&game->surface_bm, &game->surface_rect, &game->font, buf,
             SDL_MapRGB(game->surface->format, 0, (u8)((f64)255.0 * game->r),
                        (u8)((f64)255.0 * game->r)),
             20.0, 20.0);
-
-  draw_text(&game->surface_bm, &game->surface_rect, &game->font, "Test text",
-            SDL_MapRGB(game->surface->format, 0, (u8)((f64)255.0 * game->r),
-                       (u8)((f64)255.0 * game->r)),
-            20.0, 50.0);
 
   SDL_UpdateWindowSurface(game->window);
 }
