@@ -243,6 +243,7 @@ void blit_bitmap(BitMap *dst, Rect *rect_dst, BitMap *src, Rect *rect_src,
            src->channels, dst->channels);
 }
 
+// Draw a triangle assuming vertices are in the CCW order.
 void draw_triangle(BitMap *dst, Rect *rect_dst, u32 color, Triangle triangle) {
   AABB aabb_tri = triangle_aabb(&triangle);
 
@@ -288,9 +289,9 @@ void draw_triangle(BitMap *dst, Rect *rect_dst, u32 color, Triangle triangle) {
       V2 v2v0 = v2_sub(triangle.v0, triangle.v2);
       V2 v2p = v2_sub(p, triangle.v2);
 
-      f32 c1 = perp_dot(v0v1, v0p);
-      f32 c2 = perp_dot(v1v2, v1p);
-      f32 c3 = perp_dot(v2v0, v2p);
+      f32 c1 = v2_perp_dot(v0v1, v0p);
+      f32 c2 = v2_perp_dot(v1v2, v1p);
+      f32 c3 = v2_perp_dot(v2v0, v2p);
 
       if (c1 <= 0.0 && c2 <= 0.0 && c3 <= 0.0) {
         u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
@@ -344,6 +345,13 @@ typedef struct {
 
   Rect rect;
   V2 rect_vel;
+  V3 camera_pos;
+  f32 camera_speed;
+  V3 camera_vel;
+  bool camera_active;
+  f32 camera_sense;
+  f32 camera_pitch;
+  f32 camera_yaw;
 
   BitMap bm;
   Font font;
@@ -413,6 +421,13 @@ void init(Game *game) {
   };
   game->rect = rect;
   game->rect_vel = (V2){1.2, 2.1};
+  game->camera_pos = (V3){0.0, 0.0, -50.0};
+  game->camera_speed = 10.0;
+  game->camera_vel = (V3){0.0, 0.0, 0.0};
+  game->camera_active = false;
+  game->camera_sense = 0.1;
+  game->camera_pitch = 0.0;
+  game->camera_yaw = 0.0;
 
   game->bm = load_bitmap(&game->memory, "assets/a.png");
   game->font = load_font(&game->memory, "assets/font.ttf", 32.0, 512, 512);
@@ -465,6 +480,56 @@ void run(Game *game) {
         break;
       }
       break;
+    case SDL_KEYDOWN:
+      switch (sdl_event.key.keysym.sym) {
+      case SDLK_w:
+        game->camera_vel.z = 1.0;
+        break;
+      case SDLK_s:
+        game->camera_vel.z = -1.0;
+        break;
+      case SDLK_a:
+        game->camera_vel.x = -1.0;
+        break;
+      case SDLK_d:
+        game->camera_vel.x = 1.0;
+        break;
+      default:
+        break;
+      }
+      break;
+    case SDL_KEYUP:
+      switch (sdl_event.key.keysym.sym) {
+      case SDLK_w:
+        game->camera_vel.z = 0.0;
+        break;
+      case SDLK_s:
+        game->camera_vel.z = 0.0;
+        break;
+      case SDLK_a:
+        game->camera_vel.x = 0.0;
+        break;
+      case SDLK_d:
+        game->camera_vel.x = 0.0;
+        break;
+      default:
+        break;
+      }
+      break;
+    case SDL_MOUSEBUTTONDOWN:
+      game->camera_active = true;
+      break;
+    case SDL_MOUSEBUTTONUP:
+      game->camera_active = false;
+      break;
+    case SDL_MOUSEMOTION:
+      if (game->camera_active) {
+        game->camera_yaw -=
+            sdl_event.motion.xrel * game->camera_sense * game->dt;
+        game->camera_pitch -=
+            sdl_event.motion.yrel * game->camera_sense * game->dt;
+      }
+      break;
     default:
       break;
     }
@@ -480,7 +545,6 @@ void run(Game *game) {
   }
 
   game->rect.pos = v2_add(game->rect.pos, game->rect_vel);
-
   if (game->rect.pos.x < 0 || game->surface->w < game->rect.pos.x) {
     game->rect_vel.x *= -1;
   }
@@ -488,14 +552,51 @@ void run(Game *game) {
     game->rect_vel.y *= -1;
   }
 
-  SDL_FillRect(
-      game->surface, 0,
-      SDL_MapRGB(game->surface->format, (u8)((f64)255.0 * game->r), 0, 0));
+  SDL_FillRect(game->surface, 0, 0);
+
+  V4 vertices[3] = {
+      {0.0, 1.0, 0.0, 1.0},
+      {1.0, -1.0, 0.0, 1.0},
+      {-1.0, -1.0, 0.0, 1.0},
+  };
+  Mat4 triangle_transform = mat4_idendity();
+
+  Mat4 camera_rotation_pitch =
+      mat4_rotation((V3){-1.0, 0.0, 0.0}, game->camera_pitch);
+  Mat4 camera_rotation_yaw =
+      mat4_rotation((V3){0.0, 1.0, 0.0}, game->camera_yaw);
+  Mat4 camera_rotation = mat4_mul(&camera_rotation_pitch, &camera_rotation_yaw);
+
+  V3 camera_vel = v3_mul(game->camera_vel, game->camera_speed * game->dt);
+  V4 camera_vel_v4 = v3_to_v4(camera_vel, 1.0);
+
+  V4 camera_vel_v4_rotated = v4_mul_mat4(camera_vel_v4, &camera_rotation);
+  game->camera_pos = v3_add(game->camera_pos, v4_to_v3(camera_vel_v4_rotated));
+
+  Mat4 camera_translation = mat4_idendity();
+  mat4_translate(&camera_translation, game->camera_pos);
+  Mat4 camera_transform = mat4_mul(&camera_rotation, &camera_translation);
+
+  Mat4 perspective = mat4_perspective(
+      70.0 / 180.0 * 3.14, (f32)WINDOW_WIDTH / (f32)WINDOW_HIGHT, 0.1, 1000.0);
+
+  Mat4 model_view = mat4_mul(&camera_transform, &triangle_transform);
+  Mat4 mvp = mat4_mul(&perspective, &model_view);
+
+  for (u32 i = 0; i < 3; i++) {
+    vertices[i] = mat4_mul_v4(&mvp, vertices[i]);
+    vertices[i].x = vertices[i].x / vertices[i].w;
+    vertices[i].y = vertices[i].y / vertices[i].w;
+    vertices[i].z = vertices[i].z / vertices[i].w;
+  }
 
   Triangle t = {
-      .v0 = {0.0, WINDOW_HIGHT},
-      .v1 = {WINDOW_WIDTH, WINDOW_HIGHT},
-      .v2 = {WINDOW_WIDTH / 2.0, 0.0},
+      .v0 = {(vertices[0].x + 1.0) / 2.0 * WINDOW_WIDTH,
+             (vertices[0].y + 1.0) / 2.0 * WINDOW_HIGHT},
+      .v1 = {(vertices[1].x + 1.0) / 2.0 * WINDOW_WIDTH,
+             (vertices[1].y + 1.0) / 2.0 * WINDOW_HIGHT},
+      .v2 = {(vertices[2].x + 1.0) / 2.0 * WINDOW_WIDTH,
+             (vertices[2].y + 1.0) / 2.0 * WINDOW_HIGHT},
   };
   draw_triangle(&game->surface_bm, NULL, 0xFF0000FF, t);
 
