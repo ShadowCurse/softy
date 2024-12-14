@@ -394,8 +394,7 @@ void camera_handle_event(Camera *camera, SDL_Event *sdl_event, f32 dt) {
   case SDL_MOUSEMOTION:
     if (camera->is_active) {
       camera->yaw -= sdl_event->motion.xrel * camera->mouse_sense * dt;
-      camera->pitch -=
-          sdl_event->motion.yrel * camera->mouse_sense * dt;
+      camera->pitch -= sdl_event->motion.yrel * camera->mouse_sense * dt;
     }
     break;
   default:
@@ -412,8 +411,7 @@ Mat4 camera_translation(Camera *camera) {
 Mat4 camera_rotation(Camera *camera) {
   Mat4 camera_rotation_pitch =
       mat4_rotation((V3){-1.0, 0.0, 0.0}, camera->pitch);
-  Mat4 camera_rotation_yaw =
-      mat4_rotation((V3){0.0, 1.0, 0.0}, camera->yaw);
+  Mat4 camera_rotation_yaw = mat4_rotation((V3){0.0, 1.0, 0.0}, camera->yaw);
   return mat4_mul(&camera_rotation_pitch, &camera_rotation_yaw);
 }
 
@@ -424,8 +422,7 @@ void camera_update(Camera *camera, f32 dt) {
   V4 camera_vel_v4 = v3_to_v4(camera_vel, 1.0);
 
   V4 camera_vel_v4_rotated = v4_mul_mat4(camera_vel_v4, &rotation);
-  camera->position =
-      v3_add(camera->position, v4_to_v3(camera_vel_v4_rotated));
+  camera->position = v3_add(camera->position, v4_to_v3(camera_vel_v4_rotated));
 }
 
 Mat4 calculate_mvp(Camera *camera, Mat4 *model_transform) {
@@ -609,29 +606,16 @@ void run(Game *game) {
 
   SDL_FillRect(game->surface, 0, 0);
 
-  V4 vertices[3] = {
-      {0.0, 1.0, 0.0, 1.0},
-      {1.0, -1.0, 0.0, 1.0},
-      {-1.0, -1.0, 0.0, 1.0},
+  Vertex vertices[3] = {
+      {0.0, 1.0, 0.0},
+      {1.0, -1.0, 0.0},
+      {-1.0, -1.0, 0.0},
   };
   Mat4 triangle_transform = mat4_idendity();
 
   Mat4 mvp = calculate_mvp(&game->camera, &triangle_transform);
-  for (u32 i = 0; i < 3; i++) {
-    vertices[i] = mat4_mul_v4(&mvp, vertices[i]);
-    vertices[i].x = vertices[i].x / vertices[i].w;
-    vertices[i].y = vertices[i].y / vertices[i].w;
-    vertices[i].z = vertices[i].z / vertices[i].w;
-  }
-
-  Triangle t = {
-      .v0 = {(vertices[0].x + 1.0) / 2.0 * WINDOW_WIDTH,
-             (vertices[0].y + 1.0) / 2.0 * WINDOW_HIGHT},
-      .v1 = {(vertices[1].x + 1.0) / 2.0 * WINDOW_WIDTH,
-             (vertices[1].y + 1.0) / 2.0 * WINDOW_HIGHT},
-      .v2 = {(vertices[2].x + 1.0) / 2.0 * WINDOW_WIDTH,
-             (vertices[2].y + 1.0) / 2.0 * WINDOW_HIGHT},
-  };
+  Triangle t = vertices_to_triangle(&vertices[0], &vertices[1], &vertices[2],
+                                    &mvp, WINDOW_WIDTH, WINDOW_HIGHT);
   draw_triangle(&game->surface_bm, NULL, 0xFF0000FF, t);
 
   blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFF666666,

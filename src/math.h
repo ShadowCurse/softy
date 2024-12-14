@@ -145,6 +145,16 @@ static inline V4 v4_mul(V4 a, f32 v) {
   return result;
 }
 
+static inline V4 v4_div(V4 a, f32 v) {
+  V4 result = {
+      .x = a.x / v,
+      .y = a.y / v,
+      .z = a.z / v,
+      .w = a.w / v,
+  };
+  return result;
+}
+
 static inline f32 v4_dot(V4 a, V4 b) {
   return a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w;
 }
@@ -368,4 +378,35 @@ AABB triangle_aabb(Triangle *triangle) {
               MAX(MAX(triangle->v0.y, triangle->v1.y), triangle->v2.y)},
   };
   return result;
+}
+
+typedef struct {
+  V3 position;
+} Vertex;
+
+Triangle vertices_to_triangle(Vertex *v0, Vertex *v1, Vertex *v2, Mat4 *mvp,
+                              f32 window_width, f32 window_hight) {
+
+  V4 v0_position = v3_to_v4(v0->position, 1.0);
+  v0_position = mat4_mul_v4(mvp, v0_position);
+  v0_position = v4_div(v0_position, v0_position.w);
+
+  V4 v1_position = v3_to_v4(v1->position, 1.0);
+  v1_position = mat4_mul_v4(mvp, v1_position);
+  v1_position = v4_div(v1_position, v1_position.w);
+
+  V4 v2_position = v3_to_v4(v2->position, 1.0);
+  v2_position = mat4_mul_v4(mvp, v2_position);
+  v2_position = v4_div(v2_position, v2_position.w);
+
+  Triangle t = {
+      .v0 = {(v0_position.x + 1.0) / 2.0 * window_width,
+             (v0_position.y + 1.0) / 2.0 * window_hight},
+      .v1 = {(v1_position.x + 1.0) / 2.0 * window_width,
+             (v1_position.y + 1.0) / 2.0 * window_hight},
+      .v2 = {(v2_position.x + 1.0) / 2.0 * window_width,
+             (v2_position.y + 1.0) / 2.0 * window_hight},
+  };
+
+  return t;
 }
