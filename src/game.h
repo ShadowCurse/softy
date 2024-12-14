@@ -328,6 +328,119 @@ void draw_text(BitMap *dst, Rect *rect_dst, Font *font, const char *text,
 }
 
 typedef struct {
+  V3 position;
+  f32 speed;
+  V3 velocity;
+  f32 mouse_sense;
+  f32 pitch;
+  f32 yaw;
+  bool is_active;
+} Camera;
+
+void camera_init(Camera *camera) {
+  camera->position = (V3){0.0, 0.0, -50.0};
+  camera->speed = 10.0;
+  camera->velocity = (V3){0.0, 0.0, 0.0};
+  camera->is_active = false;
+  camera->mouse_sense = 0.1;
+  camera->pitch = 0.0;
+  camera->yaw = 0.0;
+}
+
+void camera_handle_event(Camera *camera, SDL_Event *sdl_event, f32 dt) {
+  switch (sdl_event->type) {
+  case SDL_KEYDOWN:
+    switch (sdl_event->key.keysym.sym) {
+    case SDLK_w:
+      camera->velocity.z = 1.0;
+      break;
+    case SDLK_s:
+      camera->velocity.z = -1.0;
+      break;
+    case SDLK_a:
+      camera->velocity.x = -1.0;
+      break;
+    case SDLK_d:
+      camera->velocity.x = 1.0;
+      break;
+    default:
+      break;
+    }
+    break;
+  case SDL_KEYUP:
+    switch (sdl_event->key.keysym.sym) {
+    case SDLK_w:
+      camera->velocity.z = 0.0;
+      break;
+    case SDLK_s:
+      camera->velocity.z = 0.0;
+      break;
+    case SDLK_a:
+      camera->velocity.x = 0.0;
+      break;
+    case SDLK_d:
+      camera->velocity.x = 0.0;
+      break;
+    default:
+      break;
+    }
+    break;
+  case SDL_MOUSEBUTTONDOWN:
+    camera->is_active = true;
+    break;
+  case SDL_MOUSEBUTTONUP:
+    camera->is_active = false;
+    break;
+  case SDL_MOUSEMOTION:
+    if (camera->is_active) {
+      camera->yaw -= sdl_event->motion.xrel * camera->mouse_sense * dt;
+      camera->pitch -=
+          sdl_event->motion.yrel * camera->mouse_sense * dt;
+    }
+    break;
+  default:
+    break;
+  }
+}
+
+Mat4 camera_translation(Camera *camera) {
+  Mat4 translation = mat4_idendity();
+  mat4_translate(&translation, camera->position);
+  return translation;
+}
+
+Mat4 camera_rotation(Camera *camera) {
+  Mat4 camera_rotation_pitch =
+      mat4_rotation((V3){-1.0, 0.0, 0.0}, camera->pitch);
+  Mat4 camera_rotation_yaw =
+      mat4_rotation((V3){0.0, 1.0, 0.0}, camera->yaw);
+  return mat4_mul(&camera_rotation_pitch, &camera_rotation_yaw);
+}
+
+void camera_update(Camera *camera, f32 dt) {
+  Mat4 rotation = camera_rotation(camera);
+
+  V3 camera_vel = v3_mul(camera->velocity, camera->speed * dt);
+  V4 camera_vel_v4 = v3_to_v4(camera_vel, 1.0);
+
+  V4 camera_vel_v4_rotated = v4_mul_mat4(camera_vel_v4, &rotation);
+  camera->position =
+      v3_add(camera->position, v4_to_v3(camera_vel_v4_rotated));
+}
+
+Mat4 calculate_mvp(Camera *camera, Mat4 *model_transform) {
+  Mat4 c_rotation = camera_rotation(camera);
+  Mat4 c_translation = camera_translation(camera);
+  Mat4 camera_transform = mat4_mul(&c_rotation, &c_translation);
+
+  Mat4 perspective = mat4_perspective(
+      70.0 / 180.0 * 3.14, (f32)WINDOW_WIDTH / (f32)WINDOW_HIGHT, 0.1, 1000.0);
+
+  Mat4 model_view = mat4_mul(&camera_transform, model_transform);
+  return mat4_mul(&perspective, &model_view);
+}
+
+typedef struct {
   Memory memory;
 
   SDL_Window *window;
@@ -345,13 +458,8 @@ typedef struct {
 
   Rect rect;
   V2 rect_vel;
-  V3 camera_pos;
-  f32 camera_speed;
-  V3 camera_vel;
-  bool camera_active;
-  f32 camera_sense;
-  f32 camera_pitch;
-  f32 camera_yaw;
+
+  Camera camera;
 
   BitMap bm;
   Font font;
@@ -421,13 +529,8 @@ void init(Game *game) {
   };
   game->rect = rect;
   game->rect_vel = (V2){1.2, 2.1};
-  game->camera_pos = (V3){0.0, 0.0, -50.0};
-  game->camera_speed = 10.0;
-  game->camera_vel = (V3){0.0, 0.0, 0.0};
-  game->camera_active = false;
-  game->camera_sense = 0.1;
-  game->camera_pitch = 0.0;
-  game->camera_yaw = 0.0;
+
+  camera_init(&game->camera);
 
   game->bm = load_bitmap(&game->memory, "assets/a.png");
   game->font = load_font(&game->memory, "assets/font.ttf", 32.0, 512, 512);
@@ -480,60 +583,12 @@ void run(Game *game) {
         break;
       }
       break;
-    case SDL_KEYDOWN:
-      switch (sdl_event.key.keysym.sym) {
-      case SDLK_w:
-        game->camera_vel.z = 1.0;
-        break;
-      case SDLK_s:
-        game->camera_vel.z = -1.0;
-        break;
-      case SDLK_a:
-        game->camera_vel.x = -1.0;
-        break;
-      case SDLK_d:
-        game->camera_vel.x = 1.0;
-        break;
-      default:
-        break;
-      }
-      break;
-    case SDL_KEYUP:
-      switch (sdl_event.key.keysym.sym) {
-      case SDLK_w:
-        game->camera_vel.z = 0.0;
-        break;
-      case SDLK_s:
-        game->camera_vel.z = 0.0;
-        break;
-      case SDLK_a:
-        game->camera_vel.x = 0.0;
-        break;
-      case SDLK_d:
-        game->camera_vel.x = 0.0;
-        break;
-      default:
-        break;
-      }
-      break;
-    case SDL_MOUSEBUTTONDOWN:
-      game->camera_active = true;
-      break;
-    case SDL_MOUSEBUTTONUP:
-      game->camera_active = false;
-      break;
-    case SDL_MOUSEMOTION:
-      if (game->camera_active) {
-        game->camera_yaw -=
-            sdl_event.motion.xrel * game->camera_sense * game->dt;
-        game->camera_pitch -=
-            sdl_event.motion.yrel * game->camera_sense * game->dt;
-      }
-      break;
     default:
       break;
     }
+    camera_handle_event(&game->camera, &sdl_event, game->dt);
   }
+  camera_update(&game->camera, game->dt);
 
 #ifndef __EMSCRIPTEN__
   cap_fps(game);
@@ -561,28 +616,7 @@ void run(Game *game) {
   };
   Mat4 triangle_transform = mat4_idendity();
 
-  Mat4 camera_rotation_pitch =
-      mat4_rotation((V3){-1.0, 0.0, 0.0}, game->camera_pitch);
-  Mat4 camera_rotation_yaw =
-      mat4_rotation((V3){0.0, 1.0, 0.0}, game->camera_yaw);
-  Mat4 camera_rotation = mat4_mul(&camera_rotation_pitch, &camera_rotation_yaw);
-
-  V3 camera_vel = v3_mul(game->camera_vel, game->camera_speed * game->dt);
-  V4 camera_vel_v4 = v3_to_v4(camera_vel, 1.0);
-
-  V4 camera_vel_v4_rotated = v4_mul_mat4(camera_vel_v4, &camera_rotation);
-  game->camera_pos = v3_add(game->camera_pos, v4_to_v3(camera_vel_v4_rotated));
-
-  Mat4 camera_translation = mat4_idendity();
-  mat4_translate(&camera_translation, game->camera_pos);
-  Mat4 camera_transform = mat4_mul(&camera_rotation, &camera_translation);
-
-  Mat4 perspective = mat4_perspective(
-      70.0 / 180.0 * 3.14, (f32)WINDOW_WIDTH / (f32)WINDOW_HIGHT, 0.1, 1000.0);
-
-  Mat4 model_view = mat4_mul(&camera_transform, &triangle_transform);
-  Mat4 mvp = mat4_mul(&perspective, &model_view);
-
+  Mat4 mvp = calculate_mvp(&game->camera, &triangle_transform);
   for (u32 i = 0; i < 3; i++) {
     vertices[i] = mat4_mul_v4(&mvp, vertices[i]);
     vertices[i].x = vertices[i].x / vertices[i].w;
