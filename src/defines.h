@@ -1,3 +1,6 @@
+#ifndef SOFTY_DEFINES
+#define SOFTY_DEFINES
+
 #include <stdint.h>
 
 #define bool uint8_t
@@ -22,3 +25,5 @@
 #define FPS 60
 #define FRAME_TIME_S 1.0 / FPS
 #define FRAME_TIME_NS FRAME_TIME_S *NS_PER_SEC
+
+#endif

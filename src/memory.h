@@ -1,3 +1,6 @@
+#ifndef SOFTY_MEMORY
+#define SOFTY_MEMORY
+
 #include "defines.h"
 
 #include <stdalign.h>
@@ -67,3 +70,5 @@ void *__bump_alloc(MemoryChunk *chunk, u64 size, u64 alignment) {
 
   return r_ptr;
 }
+
+#endif

@@ -1,3 +1,6 @@
+#ifndef SOFTY_LOG
+#define SOFTY_LOG
+
 #include "defines.h"
 
 #include <stdarg.h>
@@ -40,3 +43,5 @@ void _LOG(const char *level, const char *color, const char *file, u32 line,
 
   va_end(args);
 }
+
+#endif

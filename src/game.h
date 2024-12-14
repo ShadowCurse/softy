@@ -3,6 +3,7 @@
 #include "log.h"
 #include "math.h"
 #include "memory.h"
+#include "primitives.h"
 #include <SDL2/SDL.h>
 
 #include "stb_image.h"
