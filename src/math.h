@@ -4,8 +4,8 @@
 #include "defines.h"
 #include <math.h>
 
-#define MIN(a, b) a < b ? a : b
-#define MAX(a, b) a < b ? b : a
+#define MIN(a, b) (a < b ? a : b)
+#define MAX(a, b) (a < b ? b : a)
 
 f32 lerp(f32 a, f32 b, f32 t) { return a * (1.0 - t) + b * t; }
 
