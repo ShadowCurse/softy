@@ -519,6 +519,10 @@ typedef struct {
 
   BitMap bm;
   Font font;
+
+  Model model;
+  f32 model_rotation;
+  Mat4 model_transform;
 } Game;
 
 void update_window_surface(Game *game) {
@@ -590,6 +594,9 @@ void init(Game *game) {
 
   game->bm = load_bitmap(&game->memory, "assets/a.png");
   game->font = load_font(&game->memory, "assets/font.ttf", 32.0, 512, 512);
+  game->model = load_model(&game->memory, "assets/monkey.obj");
+  game->model_rotation = 0.0;
+  game->model_transform = mat4_idendity();
 }
 
 void destroy(Game *game) {
@@ -639,6 +646,20 @@ void run(Game *game) {
         break;
       }
       break;
+    case SDL_KEYDOWN:
+      switch (sdl_event.key.keysym.sym) {
+      case SDLK_q:
+        game->model_rotation += game->dt;
+        game->model_transform =
+            mat4_rotation((V3){0.0, 1.0, 0.0}, game->model_rotation);
+        break;
+      case SDLK_e:
+        game->model_rotation -= game->dt;
+        game->model_transform =
+            mat4_rotation((V3){0.0, 1.0, 0.0}, game->model_rotation);
+        break;
+      }
+      break;
     default:
       break;
     }
@@ -665,17 +686,15 @@ void run(Game *game) {
 
   SDL_FillRect(game->surface, 0, 0);
 
-  Vertex vertices[3] = {
-      {0.0, 1.0, 0.0},
-      {1.0, -1.0, 0.0},
-      {-1.0, -1.0, 0.0},
-  };
-  Mat4 triangle_transform = mat4_idendity();
-
-  Mat4 mvp = calculate_mvp(&game->camera, &triangle_transform);
-  Triangle t = vertices_to_triangle(&vertices[0], &vertices[1], &vertices[2],
-                                    &mvp, WINDOW_WIDTH, WINDOW_HIGHT);
-  draw_triangle(&game->surface_bm, NULL, 0xFF0000FF, t);
+  Mat4 mvp = calculate_mvp(&game->camera, &game->model_transform);
+  for (u32 i = 0; i < game->model.vertices_num; i += 3) {
+    Triangle t = vertices_to_triangle(
+        &game->model.vertices[i], &game->model.vertices[i + 1],
+        &game->model.vertices[i + 2], &mvp, WINDOW_WIDTH, WINDOW_HIGHT);
+    u32 color =
+        (f32)(0xFFAA33FF) * (f32)(i + 1) / (f32)(game->model.vertices_num + 1);
+    draw_triangle(&game->surface_bm, NULL, color, t);
+  }
 
   blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFF666666,
                   &game->rect);
