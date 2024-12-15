@@ -244,6 +244,52 @@ void blit_bitmap(BitMap *dst, Rect *rect_dst, BitMap *src, Rect *rect_src,
            src->channels, dst->channels);
 }
 
+void draw_aabb(BitMap *dst, Rect *rect_dst, AABB *aabb, u32 color) {
+  AABB aabb_dst;
+  u8 *dst_start;
+  if (rect_dst) {
+    ASSERT((rect_dst->width <= dst->width), "Invalid blit rect_dst");
+    ASSERT((rect_dst->hight <= dst->hight), "Invalid blit rect_dst");
+    aabb_dst = rect_aabb(rect_dst);
+    dst_start = dst->data + (u32)(rect_dst->pos.x - rect_dst->width / 2.0) +
+                (u32)(rect_dst->pos.y - rect_dst->hight / 2.0) * dst->width *
+                    dst->channels;
+  } else {
+    aabb_dst = (AABB){{0.0, 0.0}, {dst->width, dst->hight}};
+    dst_start = dst->data;
+  }
+
+  if (!aabb_intersect(aabb, &aabb_dst))
+    return;
+
+  AABB intersection = aabb_intersection(aabb, &aabb_dst);
+
+  u32 copy_area_width = aabb_width(&intersection);
+  u32 copy_area_hight = aabb_hight(&intersection);
+  if (copy_area_width == 0 && copy_area_hight == 0)
+    return;
+
+  V2 dst_start_offset = v2_sub(intersection.min, aabb_dst.min);
+  dst_start += (u32)dst_start_offset.x * dst->channels +
+               (u32)dst_start_offset.y * (dst->width * dst->channels);
+
+  for (u32 y = 0; y < copy_area_hight; y++) {
+    u8 *dst_row = dst_start + y * (dst->width * dst->channels);
+    if (y == 0 || y == copy_area_hight - 1) {
+      for (u32 x = 0; x < copy_area_width; x++) {
+        u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
+        *dst_color = color;
+      }
+    } else {
+      u32 *dst_color = (u32 *)(dst_row);
+      *dst_color = color;
+
+      dst_color += copy_area_width;
+      *dst_color = color;
+    }
+  }
+}
+
 // Draw a triangle assuming vertices are in the CCW order.
 void draw_triangle(BitMap *dst, Rect *rect_dst, u32 color, Triangle triangle) {
   AABB aabb_tri = triangle_aabb(&triangle);
