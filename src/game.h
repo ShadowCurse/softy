@@ -410,6 +410,12 @@ void camera_handle_event(Camera *camera, SDL_Event *sdl_event, f32 dt) {
     case SDLK_d:
       camera->velocity.x = 1.0;
       break;
+    case SDLK_SPACE:
+      camera->velocity.y = -1.0;
+      break;
+    case SDLK_LCTRL:
+      camera->velocity.y = 1.0;
+      break;
     default:
       break;
     }
@@ -427,6 +433,12 @@ void camera_handle_event(Camera *camera, SDL_Event *sdl_event, f32 dt) {
       break;
     case SDLK_d:
       camera->velocity.x = 0.0;
+      break;
+    case SDLK_SPACE:
+      camera->velocity.y = 0.0;
+      break;
+    case SDLK_LCTRL:
+      camera->velocity.y = 0.0;
       break;
     default:
       break;
