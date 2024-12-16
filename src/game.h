@@ -291,7 +291,8 @@ void draw_aabb(BitMap *dst, Rect *rect_dst, AABB *aabb, u32 color) {
 }
 
 // Draw a triangle assuming vertices are in the CCW order.
-void draw_triangle(BitMap *dst, Rect *rect_dst, u32 color, Triangle triangle) {
+void draw_triangle(f32 *depthbuffer, BitMap *dst, Rect *rect_dst, u32 color,
+                   Triangle triangle) {
   AABB aabb_tri = triangle_aabb(&triangle);
 
   AABB aabb_dst;
@@ -327,22 +328,43 @@ void draw_triangle(BitMap *dst, Rect *rect_dst, u32 color, Triangle triangle) {
     for (u32 x = 0; x < copy_area_width; x++) {
       V2 p = {intersection.min.x + (f32)x, intersection.min.y + (f32)y};
 
-      V2 v0v1 = v2_sub(triangle.v1, triangle.v0);
-      V2 v0p = v2_sub(p, triangle.v0);
+      V2 v0v1 = v2_sub(triangle.v1.xy, triangle.v0.xy);
+      V2 v0p = v2_sub(p, triangle.v0.xy);
 
-      V2 v1v2 = v2_sub(triangle.v2, triangle.v1);
-      V2 v1p = v2_sub(p, triangle.v1);
+      V2 v1v2 = v2_sub(triangle.v2.xy, triangle.v1.xy);
+      V2 v1p = v2_sub(p, triangle.v1.xy);
 
-      V2 v2v0 = v2_sub(triangle.v0, triangle.v2);
-      V2 v2p = v2_sub(p, triangle.v2);
+      V2 v2v0 = v2_sub(triangle.v0.xy, triangle.v2.xy);
+      V2 v2p = v2_sub(p, triangle.v2.xy);
 
       f32 c1 = v2_perp_dot(v0v1, v0p);
       f32 c2 = v2_perp_dot(v1v2, v1p);
       f32 c3 = v2_perp_dot(v2v0, v2p);
 
       if (c1 <= 0.0 && c2 <= 0.0 && c3 <= 0.0) {
-        u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
-        *dst_color = color;
+        f32 w0 =
+            ((triangle.v1.y - triangle.v2.y) * (p.x - triangle.v2.x) +
+             (triangle.v2.x - triangle.v1.x) * (p.y - triangle.v2.y)) /
+            ((triangle.v1.y - triangle.v2.y) * (triangle.v0.x - triangle.v2.x) +
+             (triangle.v2.x - triangle.v1.x) * (triangle.v0.y - triangle.v2.y));
+        f32 w1 =
+            ((triangle.v2.y - triangle.v0.y) * (p.x - triangle.v2.x) +
+             (triangle.v0.x - triangle.v2.x) * (p.y - triangle.v2.y)) /
+            ((triangle.v1.y - triangle.v2.y) * (triangle.v0.x - triangle.v2.x) +
+             (triangle.v2.x - triangle.v1.x) * (triangle.v0.y - triangle.v2.y));
+        f32 w2 = 1.0 - w0 - w1;
+
+        f32 depth = (w0 * 1.0 / triangle.v0.z + w1 * 1.0 / triangle.v1.z +
+                     w2 * 1.0 / triangle.v2.z);
+
+        f32 *current_depth = depthbuffer + (u32)(intersection.min.x) +
+                             (u32)(intersection.min.y) * dst->width + x +
+                             y * dst->width;
+        if (*current_depth < depth) {
+          *current_depth = depth;
+          u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
+          *dst_color = color;
+        }
       }
     }
   }
@@ -684,6 +706,10 @@ void run(Game *game) {
     game->rect_vel.y *= -1;
   }
 
+  f32 *depthbuffer = frame_alloc_array((&game->memory), f32,
+                                       game->surface->w * game->surface->h);
+  memset(depthbuffer, 0, game->surface->w * game->surface->h * 4);
+
   SDL_FillRect(game->surface, 0, 0);
 
   Mat4 mvp = calculate_mvp(&game->camera, &game->model_transform);
@@ -693,8 +719,18 @@ void run(Game *game) {
         &game->model.vertices[i + 2], &mvp, WINDOW_WIDTH, WINDOW_HIGHT);
     u32 color =
         (f32)(0xFFAA33FF) * (f32)(i + 1) / (f32)(game->model.vertices_num + 1);
-    draw_triangle(&game->surface_bm, NULL, color, t);
+    draw_triangle(depthbuffer, &game->surface_bm, NULL, color, t);
   }
+
+  // Draw depth buffer
+  // for (u32 x = 0; x < game->surface_rect.width; x++) {
+  //   for (u32 y = 0; y < game->surface_rect.width; y++) {
+  //     u32* pixel = (u32*)(game->surface->pixels) + x + y * game->surface->w;
+  //     f32* depth = depthbuffer + x + y * game->surface->w;
+  //     u32 d = (u32)(*depth * 255.0);
+  //     *pixel = d << 16 | d << 8 | d << 0;
+  //   }
+  // }
 
   blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFF666666,
                   &game->rect);

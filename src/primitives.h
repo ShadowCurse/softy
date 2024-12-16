@@ -69,11 +69,11 @@ typedef struct {
 } Vertex;
 
 typedef struct {
-  V2 v0;
+  V3 v0;
+  V3 v1;
+  V3 v2;
   Vertex *v0_vertex;
-  V2 v1;
   Vertex *v1_vertex;
-  V2 v2;
   Vertex *v2_vertex;
 } Triangle;
 
@@ -104,13 +104,13 @@ Triangle vertices_to_triangle(Vertex *v0, Vertex *v1, Vertex *v2, Mat4 *mvp,
 
   Triangle t = {
       .v0 = {(v0_position.x + 1.0) / 2.0 * window_width,
-             (v0_position.y + 1.0) / 2.0 * window_hight},
+             (v0_position.y + 1.0) / 2.0 * window_hight, v0_position.z},
       .v0_vertex = v0,
       .v1 = {(v1_position.x + 1.0) / 2.0 * window_width,
-             (v1_position.y + 1.0) / 2.0 * window_hight},
+             (v1_position.y + 1.0) / 2.0 * window_hight, v1_position.z},
       .v1_vertex = v1,
       .v2 = {(v2_position.x + 1.0) / 2.0 * window_width,
-             (v2_position.y + 1.0) / 2.0 * window_hight},
+             (v2_position.y + 1.0) / 2.0 * window_hight, v2_position.z},
       .v2_vertex = v2,
   };
 

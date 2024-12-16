@@ -45,9 +45,22 @@ static inline V2 v2_mul(V2 a, f32 v) {
 }
 
 typedef struct {
-  f32 x;
-  f32 y;
-  f32 z;
+  union {
+    struct {
+      f32 x;
+      f32 y;
+      f32 z;
+    };
+    struct {
+      V2 xy;
+      f32 _z;
+    };
+    struct {
+      f32 _x;
+      V2 yz;
+    };
+    f32 v[3];
+  };
 } V3;
 
 static inline f32 v3_dot(V3 a, V3 b) {
@@ -188,9 +201,9 @@ static inline Mat4 mat4_perspective(f32 fovy, f32 aspect, f32 near, f32 far) {
   f32 g = 1.0 / tan(fovy / 2.0);
   f32 k = near / (near - far);
   Mat4 result = {
-      .i = {.x = g / aspect},
-      .j = {.y = g},
-      .k = {.z = k, .w = -far * k},
+      .i = {.x = -g / aspect},
+      .j = {.y = -g},
+      .k = {.z = k, .w = far * k},
       .t = {.z = 1.0},
   };
   return result;
