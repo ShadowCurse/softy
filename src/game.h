@@ -751,10 +751,19 @@ void run(Game *game) {
   blit_bitmap(&game->surface_bm, NULL, &game->bm, NULL, game->rect.pos,
               0xFF0033EE);
 
+  {
+    char *buf = frame_alloc((&game->memory), char[70]);
+    snprintf(buf, 70, "FPS: %.02f dt: %.5f", 1.0 / game->dt, game->dt);
+    draw_text(&game->surface_bm, &game->surface_rect, &game->font, buf,
+              0xFF00FF00, (V2){20.0, 20.0});
+  }
+
   char *buf = frame_alloc((&game->memory), char[70]);
-  snprintf(buf, 70, "FPS: %.02f dt: %.5f", 1.0 / game->dt, game->dt);
+  snprintf(buf, 70, "Camera: x: %.02f y: %.02f z: %.02f",
+           game->camera.position.x, game->camera.position.y,
+           game->camera.position.z);
   draw_text(&game->surface_bm, &game->surface_rect, &game->font, buf,
-            0xFF00FF00, (V2){20.0, 20.0});
+            0xFF00FF00, (V2){20.0, game->surface_rect.hight - 50.0});
 
   SDL_UpdateWindowSurface(game->window);
 }
