@@ -177,10 +177,17 @@ static inline f32 v4_dot(V4 a, V4 b) {
 
 // Column based
 typedef struct {
-  V4 i;
-  V4 j;
-  V4 k;
-  V4 t;
+  union {
+    struct {
+      V4 i;
+      V4 j;
+      V4 k;
+      V4 t;
+    };
+    struct {
+      f32 v[16];
+    };
+  };
 } Mat4;
 
 static inline Mat4 mat4_idendity() {
@@ -201,9 +208,9 @@ static inline Mat4 mat4_perspective(f32 fovy, f32 aspect, f32 near, f32 far) {
   f32 g = 1.0 / tan(fovy / 2.0);
   f32 k = near / (near - far);
   Mat4 result = {
-      .i = {.x = -g / aspect},
-      .j = {.y = -g},
-      .k = {.z = k, .w = far * k},
+      .i = {.x = g / aspect},
+      .j = {.y = g},
+      .k = {.z = k, .w = -far * k},
       .t = {.z = 1.0},
   };
   return result;
@@ -324,6 +331,85 @@ static inline Mat4 mat4_mul(Mat4 *a, Mat4 *b) {
                        b->t.w * a->t.w,
               },
       };
+  return result;
+}
+
+static inline Mat4 mat4_inverse(Mat4 *m) {
+  Mat4 result;
+  result.v[0] = m->v[5] * m->v[10] * m->v[15] - m->v[5] * m->v[11] * m->v[14] -
+                m->v[9] * m->v[6] * m->v[15] + m->v[9] * m->v[7] * m->v[14] +
+                m->v[13] * m->v[6] * m->v[11] - m->v[13] * m->v[7] * m->v[10];
+
+  result.v[4] = -m->v[4] * m->v[10] * m->v[15] + m->v[4] * m->v[11] * m->v[14] +
+                m->v[8] * m->v[6] * m->v[15] - m->v[8] * m->v[7] * m->v[14] -
+                m->v[12] * m->v[6] * m->v[11] + m->v[12] * m->v[7] * m->v[10];
+
+  result.v[8] = m->v[4] * m->v[9] * m->v[15] - m->v[4] * m->v[11] * m->v[13] -
+                m->v[8] * m->v[5] * m->v[15] + m->v[8] * m->v[7] * m->v[13] +
+                m->v[12] * m->v[5] * m->v[11] - m->v[12] * m->v[7] * m->v[9];
+
+  result.v[12] = -m->v[4] * m->v[9] * m->v[14] + m->v[4] * m->v[10] * m->v[13] +
+                 m->v[8] * m->v[5] * m->v[14] - m->v[8] * m->v[6] * m->v[13] -
+                 m->v[12] * m->v[5] * m->v[10] + m->v[12] * m->v[6] * m->v[9];
+
+  result.v[1] = -m->v[1] * m->v[10] * m->v[15] + m->v[1] * m->v[11] * m->v[14] +
+                m->v[9] * m->v[2] * m->v[15] - m->v[9] * m->v[3] * m->v[14] -
+                m->v[13] * m->v[2] * m->v[11] + m->v[13] * m->v[3] * m->v[10];
+
+  result.v[5] = m->v[0] * m->v[10] * m->v[15] - m->v[0] * m->v[11] * m->v[14] -
+                m->v[8] * m->v[2] * m->v[15] + m->v[8] * m->v[3] * m->v[14] +
+                m->v[12] * m->v[2] * m->v[11] - m->v[12] * m->v[3] * m->v[10];
+
+  result.v[9] = -m->v[0] * m->v[9] * m->v[15] + m->v[0] * m->v[11] * m->v[13] +
+                m->v[8] * m->v[1] * m->v[15] - m->v[8] * m->v[3] * m->v[13] -
+                m->v[12] * m->v[1] * m->v[11] + m->v[12] * m->v[3] * m->v[9];
+
+  result.v[13] = m->v[0] * m->v[9] * m->v[14] - m->v[0] * m->v[10] * m->v[13] -
+                 m->v[8] * m->v[1] * m->v[14] + m->v[8] * m->v[2] * m->v[13] +
+                 m->v[12] * m->v[1] * m->v[10] - m->v[12] * m->v[2] * m->v[9];
+
+  result.v[2] = m->v[1] * m->v[6] * m->v[15] - m->v[1] * m->v[7] * m->v[14] -
+                m->v[5] * m->v[2] * m->v[15] + m->v[5] * m->v[3] * m->v[14] +
+                m->v[13] * m->v[2] * m->v[7] - m->v[13] * m->v[3] * m->v[6];
+
+  result.v[6] = -m->v[0] * m->v[6] * m->v[15] + m->v[0] * m->v[7] * m->v[14] +
+                m->v[4] * m->v[2] * m->v[15] - m->v[4] * m->v[3] * m->v[14] -
+                m->v[12] * m->v[2] * m->v[7] + m->v[12] * m->v[3] * m->v[6];
+
+  result.v[10] = m->v[0] * m->v[5] * m->v[15] - m->v[0] * m->v[7] * m->v[13] -
+                 m->v[4] * m->v[1] * m->v[15] + m->v[4] * m->v[3] * m->v[13] +
+                 m->v[12] * m->v[1] * m->v[7] - m->v[12] * m->v[3] * m->v[5];
+
+  result.v[14] = -m->v[0] * m->v[5] * m->v[14] + m->v[0] * m->v[6] * m->v[13] +
+                 m->v[4] * m->v[1] * m->v[14] - m->v[4] * m->v[2] * m->v[13] -
+                 m->v[12] * m->v[1] * m->v[6] + m->v[12] * m->v[2] * m->v[5];
+
+  result.v[3] = -m->v[1] * m->v[6] * m->v[11] + m->v[1] * m->v[7] * m->v[10] +
+                m->v[5] * m->v[2] * m->v[11] - m->v[5] * m->v[3] * m->v[10] -
+                m->v[9] * m->v[2] * m->v[7] + m->v[9] * m->v[3] * m->v[6];
+
+  result.v[7] = m->v[0] * m->v[6] * m->v[11] - m->v[0] * m->v[7] * m->v[10] -
+                m->v[4] * m->v[2] * m->v[11] + m->v[4] * m->v[3] * m->v[10] +
+                m->v[8] * m->v[2] * m->v[7] - m->v[8] * m->v[3] * m->v[6];
+
+  result.v[11] = -m->v[0] * m->v[5] * m->v[11] + m->v[0] * m->v[7] * m->v[9] +
+                 m->v[4] * m->v[1] * m->v[11] - m->v[4] * m->v[3] * m->v[9] -
+                 m->v[8] * m->v[1] * m->v[7] + m->v[8] * m->v[3] * m->v[5];
+
+  result.v[15] = m->v[0] * m->v[5] * m->v[10] - m->v[0] * m->v[6] * m->v[9] -
+                 m->v[4] * m->v[1] * m->v[10] + m->v[4] * m->v[2] * m->v[9] +
+                 m->v[8] * m->v[1] * m->v[6] - m->v[8] * m->v[2] * m->v[5];
+
+  f32 det = m->v[0] * result.v[0] + m->v[1] * result.v[4] +
+            m->v[2] * result.v[8] + m->v[3] * result.v[12];
+
+  if (det == 0)
+    return mat4_idendity();
+
+  det = 1.0 / det;
+  for (u32 i = 0; i < 16; i++)
+    result.v[i] = result.v[i] * det;
+
   return result;
 }
 

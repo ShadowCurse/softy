@@ -367,8 +367,8 @@ void draw_triangle(f32 *depthbuffer, BitMap *dst, Rect *rect_dst, u32 color,
              (triangle.v2.x - triangle.v1.x) * (triangle.v0.y - triangle.v2.y));
         f32 w2 = 1.0 - w0 - w1;
 
-        f32 depth = (w0 * 1.0 / triangle.v0.z + w1 * 1.0 / triangle.v1.z +
-                     w2 * 1.0 / triangle.v2.z);
+        f32 depth =
+            w0 * triangle.v0.z + w1 * triangle.v1.z + w2 * triangle.v2.z;
 
         f32 *current_depth = depthbuffer + (u32)(intersection.min.x) +
                              (u32)(intersection.min.y) * dst->width + x +
@@ -419,8 +419,15 @@ typedef struct {
   bool is_active;
 } Camera;
 
+#define CAMERA_FORWARD                                                         \
+  (V3) { 0.0, 0.0, 1.0 }
+#define CAMERA_UP                                                              \
+  (V3) { 0.0, -1.0, 0.0 }
+#define CAMERA_RIGHT                                                           \
+  (V3) { 1.0, 0.0, 0.0 }
+
 void camera_init(Camera *camera) {
-  camera->position = (V3){0.0, 0.0, -50.0};
+  camera->position = (V3){0.0, -50.0, 0.0};
   camera->speed = 10.0;
   camera->velocity = (V3){0.0, 0.0, 0.0};
   camera->is_active = false;
@@ -434,10 +441,10 @@ void camera_handle_event(Camera *camera, SDL_Event *sdl_event, f32 dt) {
   case SDL_KEYDOWN:
     switch (sdl_event->key.keysym.sym) {
     case SDLK_w:
-      camera->velocity.z = 1.0;
+      camera->velocity.y = 1.0;
       break;
     case SDLK_s:
-      camera->velocity.z = -1.0;
+      camera->velocity.y = -1.0;
       break;
     case SDLK_a:
       camera->velocity.x = -1.0;
@@ -446,10 +453,10 @@ void camera_handle_event(Camera *camera, SDL_Event *sdl_event, f32 dt) {
       camera->velocity.x = 1.0;
       break;
     case SDLK_SPACE:
-      camera->velocity.y = -1.0;
+      camera->velocity.z = 1.0;
       break;
     case SDLK_LCTRL:
-      camera->velocity.y = 1.0;
+      camera->velocity.z = -1.0;
       break;
     default:
       break;
@@ -458,10 +465,10 @@ void camera_handle_event(Camera *camera, SDL_Event *sdl_event, f32 dt) {
   case SDL_KEYUP:
     switch (sdl_event->key.keysym.sym) {
     case SDLK_w:
-      camera->velocity.z = 0.0;
+      camera->velocity.y = 0.0;
       break;
     case SDLK_s:
-      camera->velocity.z = 0.0;
+      camera->velocity.y = 0.0;
       break;
     case SDLK_a:
       camera->velocity.x = 0.0;
@@ -470,10 +477,10 @@ void camera_handle_event(Camera *camera, SDL_Event *sdl_event, f32 dt) {
       camera->velocity.x = 0.0;
       break;
     case SDLK_SPACE:
-      camera->velocity.y = 0.0;
+      camera->velocity.z = 0.0;
       break;
     case SDLK_LCTRL:
-      camera->velocity.y = 0.0;
+      camera->velocity.z = 0.0;
       break;
     default:
       break;
@@ -503,10 +510,36 @@ Mat4 camera_translation(Camera *camera) {
 }
 
 Mat4 camera_rotation(Camera *camera) {
+  // These are in world space
   Mat4 camera_rotation_pitch =
-      mat4_rotation((V3){-1.0, 0.0, 0.0}, camera->pitch);
-  Mat4 camera_rotation_yaw = mat4_rotation((V3){0.0, 1.0, 0.0}, camera->yaw);
-  return mat4_mul(&camera_rotation_pitch, &camera_rotation_yaw);
+      mat4_rotation((V3){1.0, 0.0, 0.0}, camera->pitch);
+  Mat4 camera_rotation_yaw = mat4_rotation((V3){0.0, 0.0, 1.0}, camera->yaw);
+  return mat4_mul(&camera_rotation_yaw, &camera_rotation_pitch);
+}
+
+Mat4 camera_transform(Camera *camera) {
+  Mat4 c_rotation = camera_rotation(camera);
+  // Camera space is:
+  // X right
+  // Y down
+  // Z forward
+  // While world space is:
+  // X right
+  // Y forward
+  // Z up
+  Mat4 c_coords = {
+      .i = {1.0, 0.0, 0.0, 0.0},
+      .j = {0.0, 0.0, -1.0, 0.0},
+      .k = {0.0, 1.0, 0.0, 0.0},
+      .t = {0.0, 0.0, 0.0, 1.0},
+  };
+  c_rotation = mat4_mul(&c_rotation, &c_coords);
+
+  Mat4 c_translation = camera_translation(camera);
+  Mat4 camera_transform = mat4_mul(&c_translation, &c_rotation);
+  camera_transform = mat4_inverse(&camera_transform);
+
+  return camera_transform;
 }
 
 void camera_update(Camera *camera, f32 dt) {
@@ -515,19 +548,16 @@ void camera_update(Camera *camera, f32 dt) {
   V3 camera_vel = v3_mul(camera->velocity, camera->speed * dt);
   V4 camera_vel_v4 = v3_to_v4(camera_vel, 1.0);
 
-  V4 camera_vel_v4_rotated = v4_mul_mat4(camera_vel_v4, &rotation);
+  V4 camera_vel_v4_rotated = mat4_mul_v4(&rotation, camera_vel_v4);
   camera->position = v3_add(camera->position, v4_to_v3(camera_vel_v4_rotated));
 }
 
 Mat4 calculate_mvp(Camera *camera, Mat4 *model_transform) {
-  Mat4 c_rotation = camera_rotation(camera);
-  Mat4 c_translation = camera_translation(camera);
-  Mat4 camera_transform = mat4_mul(&c_rotation, &c_translation);
-
+  Mat4 c_transform = camera_transform(camera);
   Mat4 perspective = mat4_perspective(
       70.0 / 180.0 * 3.14, (f32)WINDOW_WIDTH / (f32)WINDOW_HIGHT, 0.1, 1000.0);
 
-  Mat4 model_view = mat4_mul(&camera_transform, model_transform);
+  Mat4 model_view = mat4_mul(&c_transform, model_transform);
   return mat4_mul(&perspective, &model_view);
 }
 
@@ -685,13 +715,11 @@ void run(Game *game) {
       switch (sdl_event.key.keysym.sym) {
       case SDLK_q:
         game->model_rotation += game->dt;
-        game->model_transform =
-            mat4_rotation((V3){0.0, 1.0, 0.0}, game->model_rotation);
+        game->model_transform = mat4_rotation(CAMERA_UP, game->model_rotation);
         break;
       case SDLK_e:
         game->model_rotation -= game->dt;
-        game->model_transform =
-            mat4_rotation((V3){0.0, 1.0, 0.0}, game->model_rotation);
+        game->model_transform = mat4_rotation(CAMERA_UP, game->model_rotation);
         break;
       }
       break;
