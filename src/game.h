@@ -292,7 +292,7 @@ void draw_aabb(BitMap *dst, Rect *rect_dst, AABB *aabb, u32 color) {
 
 // Draw a triangle assuming vertices are in the CCW order.
 void draw_triangle(f32 *depthbuffer, BitMap *dst, Rect *rect_dst, u32 color,
-                   Triangle triangle) {
+                   Triangle triangle, CullMode cullmode) {
   AABB aabb_tri = triangle_aabb(&triangle);
 
   AABB aabb_dst;
@@ -341,7 +341,20 @@ void draw_triangle(f32 *depthbuffer, BitMap *dst, Rect *rect_dst, u32 color,
       f32 c2 = v2_perp_dot(v1v2, v1p);
       f32 c3 = v2_perp_dot(v2v0, v2p);
 
-      if (c1 <= 0.0 && c2 <= 0.0 && c3 <= 0.0) {
+      bool render = false;
+      switch (cullmode) {
+      case CW:
+        render = c1 >= 0.0 && c2 >= 0.0 && c3 >= 0.0;
+        break;
+      case CCW:
+        render = c1 <= 0.0 && c2 <= 0.0 && c3 <= 0.0;
+        break;
+      case None:
+        render = (c1 >= 0.0 && c2 >= 0.0 && c3 >= 0.0) ||
+                 (c1 <= 0.0 && c2 <= 0.0 && c3 <= 0.0);
+        break;
+      }
+      if (render) {
         f32 w0 =
             ((triangle.v1.y - triangle.v2.y) * (p.x - triangle.v2.x) +
              (triangle.v2.x - triangle.v1.x) * (p.y - triangle.v2.y)) /
@@ -719,7 +732,7 @@ void run(Game *game) {
         &game->model.vertices[i + 2], &mvp, WINDOW_WIDTH, WINDOW_HIGHT);
     u32 color =
         (f32)(0xFFAA33FF) * (f32)(i + 1) / (f32)(game->model.vertices_num + 1);
-    draw_triangle(depthbuffer, &game->surface_bm, NULL, color, t);
+    draw_triangle(depthbuffer, &game->surface_bm, NULL, color, t, CCW);
   }
 
   // Draw depth buffer

@@ -77,6 +77,12 @@ typedef struct {
   Vertex *v2_vertex;
 } Triangle;
 
+typedef enum {
+  CW,
+  CCW,
+  None,
+} CullMode;
+
 AABB triangle_aabb(Triangle *triangle) {
   AABB result = {
       .min = {MIN(MIN(triangle->v0.x, triangle->v1.x), triangle->v2.x),
