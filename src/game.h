@@ -730,7 +730,7 @@ typedef struct {
   (V3) { 1.0, 0.0, 0.0 }
 
 void camera_init(Camera *camera) {
-  camera->position = (V3){0.0, -8.0, 0.0};
+  camera->position = (V3){0.0, -25.0, 0.0};
   camera->speed = 10.0;
   camera->velocity = (V3){0.0, 0.0, 0.0};
   camera->is_active = false;
@@ -965,7 +965,7 @@ void init(Game *game) {
   game->draw_depth = false;
 
   game->bm = load_bitmap(&game->memory, "assets/a.png");
-  game->font = load_font(&game->memory, "assets/font.ttf", 32.0, 512, 512);
+  game->font = load_font(&game->memory, "assets/font.ttf", 24.0, 512, 512);
   game->model = load_model(&game->memory, "assets/monkey.obj");
   game->model_rotation = 0.0;
   game->model_transform = mat4_idendity();
@@ -1133,12 +1133,6 @@ void run(Game *game) {
     }
   }
 
-  blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFF666666,
-                  &game->rect);
-
-  blit_bitmap(&game->surface_bm, NULL, &game->bm, NULL, game->rect.pos,
-              0xFF0033EE);
-
   {
     char *buf = frame_alloc((&game->memory), char[70]);
     snprintf(buf, 70, "FPS: %.02f dt: %.5f", 1.0 / game->dt, game->dt);
@@ -1146,12 +1140,23 @@ void run(Game *game) {
               0xFF00FF00, (V2){20.0, 20.0});
   }
 
-  char *buf = frame_alloc((&game->memory), char[70]);
-  snprintf(buf, 70, "Camera: x: %.02f y: %.02f z: %.02f",
-           game->camera.position.x, game->camera.position.y,
-           game->camera.position.z);
-  draw_text(&game->surface_bm, &game->surface_rect, &game->font, buf,
-            0xFF00FF00, (V2){20.0, game->surface_rect.hight - 50.0});
+  {
+    char *buf = frame_alloc((&game->memory), char[70]);
+    snprintf(buf, 70, "Camera: x: %.02f y: %.02f z: %.02f",
+             game->camera.position.x, game->camera.position.y,
+             game->camera.position.z);
+    draw_text(&game->surface_bm, &game->surface_rect, &game->font, buf,
+              0xFF00FF00, (V2){20.0, game->surface_rect.hight - 20.0});
+  }
+
+  {
+    char *buf = frame_alloc((&game->memory), char[70]);
+    snprintf(buf, 70, "Triangle type: %s Show depth: %s",
+             game->triangle_mode == Standard ? "Standard" : "Barycentric",
+             game->draw_depth ? "true" : "false");
+    draw_text(&game->surface_bm, &game->surface_rect, &game->font, buf,
+              0xFF00FF00, (V2){20.0, game->surface_rect.hight - 50.0});
+  }
 
   SDL_UpdateWindowSurface(game->window);
 }
