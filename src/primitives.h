@@ -15,8 +15,14 @@ typedef struct {
 } AABB;
 
 f32 aabb_width(AABB *a) { return a->max.x - a->min.x; }
-
 f32 aabb_hight(AABB *a) { return a->max.y - a->min.y; }
+
+u32 aabb_width_u32(AABB *a) {
+  return f32_to_u32_round_up(a->max.x) - f32_to_u32_round_down(a->min.x);
+}
+u32 aabb_hight_u32(AABB *a) {
+  return f32_to_u32_round_up(a->max.y) - f32_to_u32_round_down(a->min.y);
+}
 
 AABB aabb_from_parts(V2 center, V2 dim) {
   AABB result = {

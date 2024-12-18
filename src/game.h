@@ -339,8 +339,7 @@ void draw_triangle_flat_bottom(f32 *depthbuffer, BitMap *dst, AABB *aabb_dst,
     return;
 
   AABB intersection = aabb_intersection(&aabb_tri, aabb_dst);
-  u32 copy_area_width = f32_to_u32_round_up(aabb_width(&intersection));
-  u32 copy_area_hight = f32_to_u32_round_up(aabb_hight(&intersection));
+  u32 copy_area_hight = aabb_hight_u32(&intersection);
 
   f32 inv_slope_1 =
       (triangle->v1.x - triangle->v0.x) / (triangle->v1.y - triangle->v0.y);
@@ -355,9 +354,9 @@ void draw_triangle_flat_bottom(f32 *depthbuffer, BitMap *dst, AABB *aabb_dst,
   }
 
   u8 *dst_start =
-      dst->data + f32_to_u32_round_up(intersection.min.x) * dst->channels +
+      dst->data + f32_to_u32_round_down(intersection.min.x) * dst->channels +
       f32_to_u32_round_down(intersection.min.y) * dst->width * dst->channels;
-  depthbuffer += f32_to_u32_round_up(intersection.min.x) +
+  depthbuffer += f32_to_u32_round_down(intersection.min.x) +
                  f32_to_u32_round_down(intersection.min.y) * dst->width;
   for (u32 y = 0; y < copy_area_hight; y++) {
     u8 *dst_row = dst_start;
@@ -367,10 +366,9 @@ void draw_triangle_flat_bottom(f32 *depthbuffer, BitMap *dst, AABB *aabb_dst,
     f32 line_start = MIN(x1_bound, x2_bound);
     f32 line_end = MAX(x1_bound, x2_bound);
     dst_row +=
-        f32_to_u32_round_up(line_start - intersection.min.x) * dst->channels;
-    depth_row += f32_to_u32_round_up(line_start - intersection.min.x);
-    u32 line_width =
-        f32_to_u32_round_up(line_end) - f32_to_u32_round_up(line_start);
+        f32_to_u32_round_down(line_start - intersection.min.x) * dst->channels;
+    depth_row += f32_to_u32_round_down(line_start - intersection.min.x);
+    u32 line_width = f32_to_u32_round_down(line_end - line_start);
     for (u32 x = 0; x < line_width; x++) {
       V2 p = {line_start + (f32)x, intersection.min.y + (f32)y};
       V3 w = calculate_interpolation(orig_triangle, p);
@@ -398,8 +396,7 @@ void draw_triangle_flat_top(f32 *depthbuffer, BitMap *dst, AABB *aabb_dst,
     return;
 
   AABB intersection = aabb_intersection(&aabb_tri, aabb_dst);
-  u32 copy_area_width = f32_to_u32_round_up(aabb_width(&intersection));
-  u32 copy_area_hight = f32_to_u32_round_up(aabb_hight(&intersection));
+  u32 copy_area_hight = aabb_hight_u32(&intersection);
 
   f32 inv_slope_1 =
       (triangle->v2.x - triangle->v0.x) / (triangle->v2.y - triangle->v0.y);
@@ -414,9 +411,9 @@ void draw_triangle_flat_top(f32 *depthbuffer, BitMap *dst, AABB *aabb_dst,
   }
 
   u8 *dst_start =
-      dst->data + f32_to_u32_round_up(intersection.min.x) * dst->channels +
+      dst->data + f32_to_u32_round_down(intersection.min.x) * dst->channels +
       f32_to_u32_round_down(intersection.max.y) * dst->width * dst->channels;
-  depthbuffer += f32_to_u32_round_up(intersection.min.x) +
+  depthbuffer += f32_to_u32_round_down(intersection.min.x) +
                  f32_to_u32_round_down(intersection.max.y) * dst->width;
   for (u32 y = copy_area_hight; 0 < y; y--) {
     u8 *dst_row = dst_start;
@@ -426,10 +423,10 @@ void draw_triangle_flat_top(f32 *depthbuffer, BitMap *dst, AABB *aabb_dst,
     f32 line_start = MIN(x1_bound, x2_bound);
     f32 line_end = MAX(x1_bound, x2_bound);
     dst_row +=
-        f32_to_u32_round_up(line_start - intersection.min.x) * dst->channels;
-    depth_row += f32_to_u32_round_up(line_start - intersection.min.x);
-    u32 line_width =
-        f32_to_u32_round_up(line_end) - f32_to_u32_round_up(line_start);
+        f32_to_u32_round_down(line_start - intersection.min.x) * dst->channels;
+    depth_row += f32_to_u32_round_down(line_start - intersection.min.x);
+
+    u32 line_width = f32_to_u32_round_down(line_end - line_start);
     for (u32 x = 0; x < line_width; x++) {
       V2 p = {line_start + (f32)x, intersection.min.y + (f32)y};
       V3 w = calculate_interpolation(orig_triangle, p);
@@ -481,11 +478,6 @@ void draw_triangle_standard(f32 *depthbuffer, BitMap *dst, Rect *rect_dst,
     return;
 
   AABB intersection = aabb_intersection(&aabb_tri, &aabb_dst);
-
-  u32 copy_area_width = f32_to_u32_round_up(aabb_width(&intersection));
-  u32 copy_area_hight = f32_to_u32_round_up(aabb_hight(&intersection));
-  if (copy_area_width == 0 && copy_area_hight == 0)
-    return;
 
   V3 s_v0;
   V3 s_v1;
