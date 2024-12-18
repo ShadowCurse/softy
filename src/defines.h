@@ -20,10 +20,13 @@
 #define f32 float
 #define f64 double
 
+static inline u32 f32_to_u32_round_up(f32 f) { return (u32)(f + 0.5); }
+static inline u32 f32_to_u32_round_down(f32 f) { return (u32)(f); }
+
 #define NS_PER_SEC 1000 * 1000 * 1000
 
 #define FPS 60
 #define FRAME_TIME_S 1.0 / FPS
-#define FRAME_TIME_NS FRAME_TIME_S *NS_PER_SEC
+#define FRAME_TIME_NS (FRAME_TIME_S * NS_PER_SEC)
 
 #endif

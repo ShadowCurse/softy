@@ -290,9 +290,288 @@ void draw_aabb(BitMap *dst, Rect *rect_dst, AABB *aabb, u32 color) {
   }
 }
 
+bool triangle_ccw(Triangle *triangle) {
+  f32 area =
+      0.5 *
+      ((triangle->v2.x - triangle->v0.x) * (triangle->v1.y - triangle->v0.y) -
+       (triangle->v1.x - triangle->v0.x) * (triangle->v2.y - triangle->v0.y));
+  return 0.0 < area;
+}
+
+V3 calculate_interpolation(Triangle *triangle, V2 p) {
+#if 1
+  f32 total_area = 0.5 * v3_len(v3_cross(v3_sub(triangle->v2, triangle->v0),
+                                         v3_sub(triangle->v1, triangle->v0)));
+  f32 u =
+      (p.x * (triangle->v0.y - triangle->v2.y) +
+       p.y * (triangle->v2.x - triangle->v0.x) +
+       (triangle->v0.x * triangle->v2.y - triangle->v2.x * triangle->v0.y)) /
+      (2.0 * total_area);
+  f32 v =
+      (p.x * (triangle->v1.y - triangle->v0.y) +
+       p.y * (triangle->v0.x - triangle->v1.x) +
+       (triangle->v1.x * triangle->v0.y - triangle->v0.x * triangle->v1.y)) /
+      (2.0 * total_area);
+
+  f32 r = 1.0 - u - v;
+  return (V3){r, u, v};
+#else
+  f32 w0 =
+      ((triangle->v1.y - triangle->v2.y) * (p.x - triangle->v2.x) +
+       (triangle->v2.x - triangle->v1.x) * (p.y - triangle->v2.y)) /
+      ((triangle->v1.y - triangle->v2.y) * (triangle->v0.x - triangle->v2.x) +
+       (triangle->v2.x - triangle->v1.x) * (triangle->v0.y - triangle->v2.y));
+  f32 w1 =
+      ((triangle->v2.y - triangle->v0.y) * (p.x - triangle->v2.x) +
+       (triangle->v0.x - triangle->v2.x) * (p.y - triangle->v2.y)) /
+      ((triangle->v1.y - triangle->v2.y) * (triangle->v0.x - triangle->v2.x) +
+       (triangle->v2.x - triangle->v1.x) * (triangle->v0.y - triangle->v2.y));
+  f32 w2 = 1.0 - w0 - w1;
+  return (V3){w0, w1, w2};
+#endif
+}
+
+void draw_triangle_flat_bottom(f32 *depthbuffer, BitMap *dst, AABB *aabb_dst,
+                               u32 color, Triangle *triangle,
+                               Triangle *orig_triangle) {
+  AABB aabb_tri = triangle_aabb(triangle);
+  if (!aabb_intersect(&aabb_tri, aabb_dst))
+    return;
+
+  AABB intersection = aabb_intersection(&aabb_tri, aabb_dst);
+  u32 copy_area_width = f32_to_u32_round_up(aabb_width(&intersection));
+  u32 copy_area_hight = f32_to_u32_round_up(aabb_hight(&intersection));
+
+  f32 inv_slope_1 =
+      (triangle->v1.x - triangle->v0.x) / (triangle->v1.y - triangle->v0.y);
+  f32 inv_slope_2 =
+      (triangle->v2.x - triangle->v0.x) / (triangle->v2.y - triangle->v0.y);
+
+  f32 x1 = triangle->v0.x;
+  f32 x2 = triangle->v0.x;
+  if (triangle->v0.y < intersection.min.y) {
+    x1 += inv_slope_1 * (intersection.min.y - triangle->v0.y);
+    x2 += inv_slope_2 * (intersection.min.y - triangle->v0.y);
+  }
+
+  u8 *dst_start =
+      dst->data + f32_to_u32_round_up(intersection.min.x) * dst->channels +
+      f32_to_u32_round_down(intersection.min.y) * dst->width * dst->channels;
+  depthbuffer += f32_to_u32_round_up(intersection.min.x) +
+                 f32_to_u32_round_down(intersection.min.y) * dst->width;
+  for (u32 y = 0; y < copy_area_hight; y++) {
+    u8 *dst_row = dst_start;
+    f32 *depth_row = depthbuffer;
+    f32 x1_bound = MIN(MAX(x1, intersection.min.x), intersection.max.x);
+    f32 x2_bound = MIN(MAX(x2, intersection.min.x), intersection.max.x);
+    f32 line_start = MIN(x1_bound, x2_bound);
+    f32 line_end = MAX(x1_bound, x2_bound);
+    dst_row +=
+        f32_to_u32_round_up(line_start - intersection.min.x) * dst->channels;
+    depth_row += f32_to_u32_round_up(line_start - intersection.min.x);
+    u32 line_width =
+        f32_to_u32_round_up(line_end) - f32_to_u32_round_up(line_start);
+    for (u32 x = 0; x < line_width; x++) {
+      V2 p = {line_start + (f32)x, intersection.min.y + (f32)y};
+      V3 w = calculate_interpolation(orig_triangle, p);
+      f32 depth = w.x * orig_triangle->v0.z + w.y * orig_triangle->v1.z +
+                  w.z * orig_triangle->v2.z;
+      f32 *current_depth = depth_row + x;
+      if (*current_depth < depth) {
+        *current_depth = depth;
+        u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
+        *dst_color = color;
+      }
+    }
+    x1 += inv_slope_1;
+    x2 += inv_slope_2;
+    dst_start += dst->width * dst->channels;
+    depthbuffer += dst->width;
+  }
+}
+
+void draw_triangle_flat_top(f32 *depthbuffer, BitMap *dst, AABB *aabb_dst,
+                            u32 color, Triangle *triangle,
+                            Triangle *orig_triangle) {
+  AABB aabb_tri = triangle_aabb(triangle);
+  if (!aabb_intersect(&aabb_tri, aabb_dst))
+    return;
+
+  AABB intersection = aabb_intersection(&aabb_tri, aabb_dst);
+  u32 copy_area_width = f32_to_u32_round_up(aabb_width(&intersection));
+  u32 copy_area_hight = f32_to_u32_round_up(aabb_hight(&intersection));
+
+  f32 inv_slope_1 =
+      (triangle->v2.x - triangle->v0.x) / (triangle->v2.y - triangle->v0.y);
+  f32 inv_slope_2 =
+      (triangle->v2.x - triangle->v1.x) / (triangle->v2.y - triangle->v1.y);
+
+  f32 x1 = triangle->v2.x;
+  f32 x2 = triangle->v2.x;
+  if (intersection.max.y < triangle->v2.y) {
+    x1 -= inv_slope_1 * (triangle->v2.y - intersection.max.y);
+    x2 -= inv_slope_2 * (triangle->v2.y - intersection.max.y);
+  }
+
+  u8 *dst_start =
+      dst->data + f32_to_u32_round_up(intersection.min.x) * dst->channels +
+      f32_to_u32_round_down(intersection.max.y) * dst->width * dst->channels;
+  depthbuffer += f32_to_u32_round_up(intersection.min.x) +
+                 f32_to_u32_round_down(intersection.max.y) * dst->width;
+  for (u32 y = copy_area_hight; 0 < y; y--) {
+    u8 *dst_row = dst_start;
+    f32 *depth_row = depthbuffer;
+    f32 x1_bound = MIN(MAX(x1, intersection.min.x), intersection.max.x);
+    f32 x2_bound = MIN(MAX(x2, intersection.min.x), intersection.max.x);
+    f32 line_start = MIN(x1_bound, x2_bound);
+    f32 line_end = MAX(x1_bound, x2_bound);
+    dst_row +=
+        f32_to_u32_round_up(line_start - intersection.min.x) * dst->channels;
+    depth_row += f32_to_u32_round_up(line_start - intersection.min.x);
+    u32 line_width =
+        f32_to_u32_round_up(line_end) - f32_to_u32_round_up(line_start);
+    for (u32 x = 0; x < line_width; x++) {
+      V2 p = {line_start + (f32)x, intersection.min.y + (f32)y};
+      V3 w = calculate_interpolation(orig_triangle, p);
+      f32 depth = w.x * orig_triangle->v0.z + w.y * orig_triangle->v1.z +
+                  w.z * orig_triangle->v2.z;
+      f32 *current_depth = depth_row + x;
+      if (*current_depth < depth) {
+        *current_depth = depth;
+        u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
+        *dst_color = color;
+      }
+    }
+    x1 -= inv_slope_1;
+    x2 -= inv_slope_2;
+    dst_start -= dst->width * dst->channels;
+    depthbuffer -= dst->width;
+  }
+}
+
 // Draw a triangle assuming vertices are in the CCW order.
-void draw_triangle(f32 *depthbuffer, BitMap *dst, Rect *rect_dst, u32 color,
-                   Triangle triangle, CullMode cullmode) {
+void draw_triangle_standard(f32 *depthbuffer, BitMap *dst, Rect *rect_dst,
+                            u32 color, Triangle triangle, CullMode cullmode) {
+  bool is_ccw = triangle_ccw(&triangle);
+  switch (cullmode) {
+  case CCW:
+    if (!is_ccw)
+      return;
+    break;
+  case CW:
+    if (is_ccw)
+      return;
+    break;
+  case None:
+    break;
+  }
+
+  AABB aabb_tri = triangle_aabb(&triangle);
+
+  AABB aabb_dst;
+  if (rect_dst) {
+    ASSERT((rect_dst->width <= dst->width), "Invalid blit rect_dst");
+    ASSERT((rect_dst->hight <= dst->hight), "Invalid blit rect_dst");
+    aabb_dst = rect_aabb(rect_dst);
+  } else {
+    aabb_dst = (AABB){{0.0, 0.0}, {dst->width, dst->hight}};
+  }
+
+  if (!aabb_intersect(&aabb_tri, &aabb_dst))
+    return;
+
+  AABB intersection = aabb_intersection(&aabb_tri, &aabb_dst);
+
+  u32 copy_area_width = f32_to_u32_round_up(aabb_width(&intersection));
+  u32 copy_area_hight = f32_to_u32_round_up(aabb_hight(&intersection));
+  if (copy_area_width == 0 && copy_area_hight == 0)
+    return;
+
+  V3 s_v0;
+  V3 s_v1;
+  V3 s_v2;
+
+  if (triangle.v0.y < triangle.v1.y) {
+    if (triangle.v1.y < triangle.v2.y) {
+      s_v0 = triangle.v0;
+      s_v1 = triangle.v1;
+      s_v2 = triangle.v2;
+    } else {
+      if (triangle.v0.y < triangle.v2.y) {
+        s_v0 = triangle.v0;
+        s_v1 = triangle.v2;
+        s_v2 = triangle.v1;
+      } else {
+        s_v0 = triangle.v2;
+        s_v1 = triangle.v0;
+        s_v2 = triangle.v1;
+      }
+    }
+  } else {
+    if (triangle.v0.y < triangle.v2.y) {
+      s_v0 = triangle.v1;
+      s_v1 = triangle.v0;
+      s_v2 = triangle.v2;
+    } else {
+      if (triangle.v1.y < triangle.v2.y) {
+        s_v0 = triangle.v1;
+        s_v1 = triangle.v2;
+        s_v2 = triangle.v0;
+      } else {
+        s_v0 = triangle.v2;
+        s_v1 = triangle.v1;
+        s_v2 = triangle.v0;
+      }
+    }
+  }
+  ASSERT((s_v0.y <= s_v1.y && s_v1.y <= s_v2.y),
+         "Vertices are not sorted: s_v2.y: %f, s_v1.y: %f, s_v0.y: %f", s_v2.y,
+         s_v1.y, s_v0.y);
+
+  Triangle sorted_triangle = {
+      .v0 = s_v0,
+      .v1 = s_v1,
+      .v2 = s_v2,
+  };
+  if (s_v1.y == s_v2.y) {
+    draw_triangle_flat_bottom(depthbuffer, dst, &intersection, color,
+                              &sorted_triangle, &triangle);
+    return;
+  }
+  if (s_v0.y == s_v1.y) {
+    draw_triangle_flat_top(depthbuffer, dst, &intersection, color,
+                           &sorted_triangle, &triangle);
+    return;
+  }
+
+  V3 v4 = {
+      .x = s_v0.x + ((s_v1.y - s_v0.y) / (s_v2.y - s_v0.y)) * (s_v2.x - s_v0.x),
+      .y = s_v1.y,
+      .z = 0.0,
+  };
+
+  V3 w = calculate_interpolation(&sorted_triangle, v4.xy);
+  v4.z = s_v0.z * w.x + s_v1.z * w.y + s_v2.z * w.z;
+
+  Triangle flat_bottom = {
+      .v0 = s_v0,
+      .v1 = s_v1,
+      .v2 = v4,
+  };
+  draw_triangle_flat_bottom(depthbuffer, dst, &intersection, color,
+                            &flat_bottom, &triangle);
+  Triangle flat_top = {
+      .v0 = s_v1,
+      .v1 = v4,
+      .v2 = s_v2,
+  };
+  draw_triangle_flat_top(depthbuffer, dst, &intersection, color, &flat_top,
+                         &triangle);
+}
+
+void draw_triangle_barycentric(f32 *depthbuffer, BitMap *dst, Rect *rect_dst,
+                               u32 color, Triangle triangle,
+                               CullMode cullmode) {
   AABB aabb_tri = triangle_aabb(&triangle);
 
   AABB aabb_dst;
@@ -427,7 +706,7 @@ typedef struct {
   (V3) { 1.0, 0.0, 0.0 }
 
 void camera_init(Camera *camera) {
-  camera->position = (V3){0.0, -50.0, 0.0};
+  camera->position = (V3){0.0, -8.0, 0.0};
   camera->speed = 10.0;
   camera->velocity = (V3){0.0, 0.0, 0.0};
   camera->is_active = false;
@@ -581,6 +860,8 @@ typedef struct {
   V2 rect_vel;
 
   Camera camera;
+  enum { Standard, Barycentric } triangle_mode;
+  bool draw_depth;
 
   BitMap bm;
   Font font;
@@ -656,6 +937,8 @@ void init(Game *game) {
   game->rect_vel = (V2){1.2, 2.1};
 
   camera_init(&game->camera);
+  game->triangle_mode = Standard;
+  game->draw_depth = false;
 
   game->bm = load_bitmap(&game->memory, "assets/a.png");
   game->font = load_font(&game->memory, "assets/font.ttf", 32.0, 512, 512);
@@ -715,11 +998,20 @@ void run(Game *game) {
       switch (sdl_event.key.keysym.sym) {
       case SDLK_q:
         game->model_rotation += game->dt;
-        game->model_transform = mat4_rotation(CAMERA_UP, game->model_rotation);
+        game->model_transform = mat4_rotation_z(game->model_rotation);
         break;
       case SDLK_e:
         game->model_rotation -= game->dt;
-        game->model_transform = mat4_rotation(CAMERA_UP, game->model_rotation);
+        game->model_transform = mat4_rotation_z(game->model_rotation);
+        break;
+      case SDLK_1:
+        game->triangle_mode = Standard;
+        break;
+      case SDLK_2:
+        game->triangle_mode = Barycentric;
+        break;
+      case SDLK_3:
+        game->draw_depth = !game->draw_depth;
         break;
       }
       break;
@@ -753,25 +1045,69 @@ void run(Game *game) {
 
   SDL_FillRect(game->surface, 0, 0);
 
+  Mat4 c_transform = camera_transform(&game->camera);
+  Mat4 perspective = mat4_perspective(
+      70.0 / 180.0 * 3.14, (f32)WINDOW_WIDTH / (f32)WINDOW_HIGHT, 0.1, 1000.0);
+
   Mat4 mvp = calculate_mvp(&game->camera, &game->model_transform);
   for (u32 i = 0; i < game->model.vertices_num; i += 3) {
+#if 0
+    V4 v0 = v3_to_v4(game->model.vertices[i].position, 1.0);
+    V4 v1 = v3_to_v4(game->model.vertices[i + 1].position, 1.0);
+    V4 v2 = v3_to_v4(game->model.vertices[i + 2].position, 1.0);
+    INFO("model v0 (%f %f %f), v1 (%f %f %f), v2 (%f %f %f)", v0.x, v0.y,
+    v0.z,
+         v1.x, v1.y, v1.z, v2.x, v2.y, v2.z);
+
+    V4 v0_world = mat4_mul_v4(&game->model_transform, v0);
+    V4 v1_world = mat4_mul_v4(&game->model_transform, v1);
+    V4 v2_world = mat4_mul_v4(&game->model_transform, v2);
+    INFO("world v0 (%f %f %f), v1 (%f %f %f), v2 (%f %f %f)", v0_world.x,
+         v0_world.y, v0_world.z, v1_world.x, v1_world.y, v1_world.z,
+         v2_world.x, v2_world.y, v2_world.z);
+
+    V4 v0_camera = mat4_mul_v4(&c_transform, v0_world);
+    V4 v1_camera = mat4_mul_v4(&c_transform, v1_world);
+    V4 v2_camera = mat4_mul_v4(&c_transform, v2_world);
+    INFO("camera v0 (%f %f %f), v1 (%f %f %f), v2 (%f %f %f)", v0_camera.x,
+         v0_camera.y, v0_camera.z, v1_camera.x, v1_camera.y, v1_camera.z,
+         v2_camera.x, v2_camera.y, v2_camera.z);
+
+    V4 v0_clip = mat4_mul_v4(&perspective, v0_world);
+    V4 v1_clip = mat4_mul_v4(&perspective, v1_world);
+    V4 v2_clip = mat4_mul_v4(&perspective, v2_world);
+    INFO("clip v0 (%f %f %f), v1 (%f %f %f), v2 (%f %f %f)", v0_clip.x,
+         v0_clip.y, v0_clip.z, v1_clip.x, v1_clip.y, v1_clip.z, v2_clip.x,
+         v2_clip.y, v2_clip.z);
+#endif
+
     Triangle t = vertices_to_triangle(
         &game->model.vertices[i], &game->model.vertices[i + 1],
         &game->model.vertices[i + 2], &mvp, WINDOW_WIDTH, WINDOW_HIGHT);
     u32 color =
         (f32)(0xFFAA33FF) * (f32)(i + 1) / (f32)(game->model.vertices_num + 1);
-    draw_triangle(depthbuffer, &game->surface_bm, NULL, color, t, CCW);
+    switch (game->triangle_mode) {
+    case Standard:
+      draw_triangle_standard(depthbuffer, &game->surface_bm, NULL, color, t,
+                             CCW);
+      break;
+    case Barycentric:
+      draw_triangle_barycentric(depthbuffer, &game->surface_bm, NULL, color, t,
+                                CCW);
+      break;
+    }
   }
 
-  // Draw depth buffer
-  // for (u32 x = 0; x < game->surface_rect.width; x++) {
-  //   for (u32 y = 0; y < game->surface_rect.width; y++) {
-  //     u32* pixel = (u32*)(game->surface->pixels) + x + y * game->surface->w;
-  //     f32* depth = depthbuffer + x + y * game->surface->w;
-  //     u32 d = (u32)(*depth * 255.0);
-  //     *pixel = d << 16 | d << 8 | d << 0;
-  //   }
-  // }
+  if (game->draw_depth) {
+    for (u32 y = 0; y < game->surface_rect.hight; y++) {
+      for (u32 x = 0; x < game->surface_rect.width; x++) {
+        u32 *pixel = (u32 *)(game->surface->pixels) + x + y * game->surface->w;
+        f32 *depth = depthbuffer + x + y * game->surface->w;
+        u32 d = (u32)(*depth * 255.0);
+        *pixel = d << 16 | d << 8 | d << 0;
+      }
+    }
+  }
 
   blit_color_rect(&game->surface_bm, &game->surface_rect, 0xFF666666,
                   &game->rect);

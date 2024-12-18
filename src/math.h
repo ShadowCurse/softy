@@ -63,11 +63,31 @@ typedef struct {
   };
 } V3;
 
+static inline V3 v2_to_v3(V2 a, f32 v) {
+  V3 result = {
+      .x = a.x,
+      .y = a.y,
+      .z = v,
+  };
+  return result;
+}
+
 static inline f32 v3_dot(V3 a, V3 b) {
   return a.x * b.x + a.y * b.y + a.z * b.z;
 }
 
+static inline V3 v3_cross(V3 a, V3 b) {
+  V3 result = {
+      .x = a.y * b.z - a.z * b.y,
+      .y = a.z * b.x - a.x * b.z,
+      .z = a.x * b.y - a.y * b.x,
+  };
+  return result;
+}
+
 static inline f32 v3_len_sq(V3 a) { return v3_dot(a, a); }
+
+static inline f32 v3_len(V3 a) { return sqrtf(v3_len_sq(a)); }
 
 static inline V3 v3_add(V3 a, V3 b) {
   V3 result = {
@@ -224,6 +244,16 @@ static inline Mat4 mat4_perspective_inf(f32 fovy, f32 aspect, f32 near) {
       .j = {.y = g},
       .k = {.z = e, .w = near * (1.0 - e)},
       .t = {.z = 1.0},
+  };
+  return result;
+}
+
+static inline Mat4 mat4_rotation_z(f32 angle) {
+  Mat4 result = {
+    .i = {cos(angle), sin(angle), 0.0, 0.0},
+    .j = {-sin(angle), cos(angle), 0.0, 0.0},
+    .k = {0.0, 0.0, 1.0, 0.0},
+    .t = {0.0, 0.0, 0.0, 1.0},
   };
   return result;
 }
