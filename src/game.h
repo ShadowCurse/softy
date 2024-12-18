@@ -377,8 +377,18 @@ void draw_triangle_flat_bottom(f32 *depthbuffer, BitMap *dst, AABB *aabb_dst,
       f32 *current_depth = depth_row + x;
       if (*current_depth < depth) {
         *current_depth = depth;
+
+        V3 normal =
+            v3_add(v3_add(v3_mul(orig_triangle->v0_vertex->normal, w.x),
+                          v3_mul(orig_triangle->v1_vertex->normal, w.y)),
+                   v3_mul(orig_triangle->v2_vertex->normal, w.z));
+        u32 normal_color = (u32)(fabs(normal.x * 255.0)) << 16 |
+                           (u32)(fabs(normal.y * 255.0)) << 8 |
+                           (u32)(fabs(normal.z * 255.0)) << 0;
+
         u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
-        *dst_color = color;
+        // *dst_color = color;
+        *dst_color = normal_color;
       }
     }
     x1 += inv_slope_1;
@@ -435,8 +445,18 @@ void draw_triangle_flat_top(f32 *depthbuffer, BitMap *dst, AABB *aabb_dst,
       f32 *current_depth = depth_row + x;
       if (*current_depth < depth) {
         *current_depth = depth;
+
+        V3 normal =
+            v3_add(v3_add(v3_mul(orig_triangle->v0_vertex->normal, w.x),
+                          v3_mul(orig_triangle->v1_vertex->normal, w.y)),
+                   v3_mul(orig_triangle->v2_vertex->normal, w.z));
+        u32 normal_color = (u32)(fabs(normal.x * 255.0)) << 16 |
+                           (u32)(fabs(normal.y * 255.0)) << 8 |
+                           (u32)(fabs(normal.z * 255.0)) << 0;
+
         u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
-        *dst_color = color;
+        // *dst_color = color;
+        *dst_color = normal_color;
       }
     }
     x1 -= inv_slope_1;
@@ -564,6 +584,20 @@ void draw_triangle_standard(f32 *depthbuffer, BitMap *dst, Rect *rect_dst,
 void draw_triangle_barycentric(f32 *depthbuffer, BitMap *dst, Rect *rect_dst,
                                u32 color, Triangle triangle,
                                CullMode cullmode) {
+  bool is_ccw = triangle_ccw(&triangle);
+  switch (cullmode) {
+  case CCW:
+    if (!is_ccw)
+      return;
+    break;
+  case CW:
+    if (is_ccw)
+      return;
+    break;
+  case None:
+    break;
+  }
+
   AABB aabb_tri = triangle_aabb(&triangle);
 
   AABB aabb_dst;
@@ -626,28 +660,26 @@ void draw_triangle_barycentric(f32 *depthbuffer, BitMap *dst, Rect *rect_dst,
         break;
       }
       if (render) {
-        f32 w0 =
-            ((triangle.v1.y - triangle.v2.y) * (p.x - triangle.v2.x) +
-             (triangle.v2.x - triangle.v1.x) * (p.y - triangle.v2.y)) /
-            ((triangle.v1.y - triangle.v2.y) * (triangle.v0.x - triangle.v2.x) +
-             (triangle.v2.x - triangle.v1.x) * (triangle.v0.y - triangle.v2.y));
-        f32 w1 =
-            ((triangle.v2.y - triangle.v0.y) * (p.x - triangle.v2.x) +
-             (triangle.v0.x - triangle.v2.x) * (p.y - triangle.v2.y)) /
-            ((triangle.v1.y - triangle.v2.y) * (triangle.v0.x - triangle.v2.x) +
-             (triangle.v2.x - triangle.v1.x) * (triangle.v0.y - triangle.v2.y));
-        f32 w2 = 1.0 - w0 - w1;
-
+        V3 w = calculate_interpolation(&triangle, p);
         f32 depth =
-            w0 * triangle.v0.z + w1 * triangle.v1.z + w2 * triangle.v2.z;
+            w.x * triangle.v0.z + w.y * triangle.v1.z + w.z * triangle.v2.z;
 
         f32 *current_depth = depthbuffer + (u32)(intersection.min.x) +
                              (u32)(intersection.min.y) * dst->width + x +
                              y * dst->width;
         if (*current_depth < depth) {
           *current_depth = depth;
+
+          V3 normal = v3_add(v3_add(v3_mul(triangle.v0_vertex->normal, w.x),
+                                    v3_mul(triangle.v1_vertex->normal, w.y)),
+                             v3_mul(triangle.v2_vertex->normal, w.z));
+          u32 normal_color = (u32)(fabs(normal.x * 255.0)) << 16 |
+                             (u32)(fabs(normal.y * 255.0)) << 8 |
+                             (u32)(fabs(normal.z * 255.0)) << 0;
+
           u32 *dst_color = (u32 *)(dst_row + x * dst->channels);
-          *dst_color = color;
+          // *dst_color = color;
+          *dst_color = normal_color;
         }
       }
     }
