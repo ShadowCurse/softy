@@ -979,10 +979,6 @@ void destroy(Game *game) {
 
 #ifndef __EMSCRIPTEN__
 void cap_fps(Game *game) {
-  game->time_new = clock();
-  game->dt = (f64)(game->time_new - game->time_old) / CLOCKS_PER_SEC;
-  game->time_old = game->time_new;
-
   if (game->dt < FRAME_TIME_S) {
     f64 sleep_s = FRAME_TIME_S - game->dt;
     u64 sec = (u64)sleep_s;
@@ -1002,6 +998,10 @@ void cap_fps(Game *game) {
 
 void run(Game *game) {
   frame_reset(&game->memory);
+
+  game->time_new = clock();
+  game->dt = (f64)(game->time_new - game->time_old) / CLOCKS_PER_SEC;
+  game->time_old = game->time_new;
 
   SDL_Event sdl_event;
   while (SDL_PollEvent(&sdl_event) != 0) {
