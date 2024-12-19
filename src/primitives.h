@@ -6,6 +6,7 @@
 #include "memory.h"
 
 #include <fcntl.h>
+#include <unistd.h>
 #include <stdlib.h>
 #include <sys/stat.h>
 
@@ -289,6 +290,7 @@ Model load_model(Memory *memory, const char *obj_path) {
   }
 
   munmap(file_mem, sb.st_size);
+  close(fd);
   INFO("Loaded model %s with %d vertices", obj_path, vertices_num);
 
   Model model = {

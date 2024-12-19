@@ -50,6 +50,7 @@ Font load_font(Memory *memory, const char *font_path, f32 font_size,
                        bitmap_hight, 0, stb_font.numGlyphs, font.char_info);
 
   munmap(file_mem, sb.st_size);
+  close(fd);
 
   INFO("Loaded font %s with %d glyphs", font_path, stb_font.numGlyphs);
 
